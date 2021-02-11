@@ -18,7 +18,7 @@ func init() {
 }
 
 func (t *TogglSource) GetName() string {
-	return "workingon"
+	return "toggl"
 }
 
 func (t *TogglSource) GetTasks() ([]Task, error) {

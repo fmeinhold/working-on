@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"github.com/fefeme/workingon/util"
 	"github.com/fefeme/workingon/workingon"
 	"time"
 
@@ -13,8 +14,8 @@ import (
 func NewProjectsCommand(cfg *workingon.Config) *cobra.Command {
 	var projectsCommand = &cobra.Command{
 		Use:   "projects",
-		Short: "List all projects from all sources",
-		Long:  `List all projects from all sources`,
+		Short: "List all projects",
+		Long:  `List all projects`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 
 			cfg := yacspin.Config{
@@ -41,6 +42,10 @@ func NewProjectsCommand(cfg *workingon.Config) *cobra.Command {
 			}
 
 			for _, source := range workingon.Registry.RegisteredSources {
+				fmt.Println(args, source.GetName())
+				if len(args) > 0 && !util.StringInSliceI(source.GetName(), args) {
+					continue
+				}
 				spinner.Message(fmt.Sprintf(source.GetName()))
 				spinner.Start()
 				projects, err := source.GetProjects()
