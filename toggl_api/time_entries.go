@@ -31,12 +31,9 @@ type TimeEntry struct {
 }
 
 func (t TimeEntry) String() string {
-	isRunning := t.Duration < 0
+	//isRunning := t.Duration < 0
 
-	if isRunning {
-		return fmt.Sprintf("You've been working on '%s' for %s (tid: %d)", t.Description, time.Since(*t.Start).Truncate(time.Minute), t.Id)
-	}
-	return fmt.Sprintf("%s", t.Description)
+	return fmt.Sprintf("'%s' %s (tid: %d)", t.Description, time.Since(*t.Start).Truncate(time.Minute), t.Id)
 }
 
 func NewTimeEntryRunning(wid int, pid int, description string, running bool, billable bool, start *time.Time) *TimeEntry {

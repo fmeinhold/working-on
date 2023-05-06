@@ -12,7 +12,8 @@ import (
 )
 
 var (
-	Pid int
+	Pid    int
+	TaskId int
 )
 
 func newStartCommand() *cobra.Command {
@@ -36,8 +37,6 @@ or by description/key, start time and duration`,
 			if err != nil {
 				panic(err)
 			}
-
-			fmt.Println(defaultPid)
 
 			cmd.Flags().IntVarP(&Pid, "pid", "p", defaultPid, "toggl_api project pid")
 
@@ -95,9 +94,28 @@ or by description/key, start time and duration`,
 				return keys, cobra.ShellCompDirectiveNoFileComp
 			}
 			return nil, cobra.ShellCompDirectiveNoFileComp
-
 		},
 	}
 
+	command.Flags().IntVarP(&TaskId, "task", "t", -1, "Toggl task id")
+
+	err := command.RegisterFlagCompletionFunc("task", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+
+		toggl := toggl_api.NewToggl(cfg.GlobalConfig.GetString(cfg.TogglApiToken))
+		result, err := toggl.Tasks.FetchAll()
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		var keys []string
+		for _, task := range result {
+			keys = append(keys, fmt.Sprintf("%s: %s", task.Id, task.Name))
+			//keys = append(keys, task.Key)
+		}
+		return keys, cobra.ShellCompDirectiveNoFileComp
+	})
+
+	if err != nil {
+		return nil
+	}
 	return command
 }

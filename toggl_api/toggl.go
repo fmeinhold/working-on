@@ -30,10 +30,6 @@ type RequestConfig struct {
 	client   *http.Client
 }
 
-type TasksClient struct {
-	config *RequestConfig
-}
-
 func NewToggl(apiToken string) *Toggl {
 	requestConfig := &RequestConfig{
 		apiToken: apiToken,
