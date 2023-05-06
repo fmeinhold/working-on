@@ -18,7 +18,7 @@ func newNowCommand() *cobra.Command {
 			}
 
 			if timeEntry.Id == 0 {
-				fmt.Println("You are slacking off.")
+				fmt.Println("Go, do your job")
 			} else {
 				fmt.Println(timeEntry)
 			}
