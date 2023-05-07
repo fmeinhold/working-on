@@ -11,11 +11,6 @@ import (
 	"time"
 )
 
-var (
-	Pid    int
-	TaskId int
-)
-
 func newStartCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "start",
@@ -32,13 +27,6 @@ or by description/key, start time and duration`,
 			if err != nil {
 				panic(err)
 			}
-
-			defaultPid, err := cfg.GetDefaultProject()
-			if err != nil {
-				panic(err)
-			}
-
-			cmd.Flags().IntVarP(&Pid, "pid", "p", defaultPid, "toggl_api project pid")
 
 			if Pid == 0 {
 				return fmt.Errorf("no pid set in config file or --pid/-p")
@@ -97,25 +85,23 @@ or by description/key, start time and duration`,
 		},
 	}
 
-	command.Flags().IntVarP(&TaskId, "task", "t", -1, "Toggl task id")
+	/*	err := command.RegisterFlagCompletionFunc("task", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 
-	err := command.RegisterFlagCompletionFunc("task", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+			toggl := toggl_api.NewToggl(cfg.GlobalConfig.GetString(cfg.TogglApiToken))
+			result, err := toggl.Tasks.FetchAll()
+			if err != nil {
+				return nil, cobra.ShellCompDirectiveNoFileComp
+			}
+			var keys []string
+			for _, task := range result {
+				keys = append(keys, fmt.Sprintf("%s: %s", task.Id, task.Name))
+				//keys = append(keys, task.Key)
+			}
+			return keys, cobra.ShellCompDirectiveNoFileComp
+		})
 
-		toggl := toggl_api.NewToggl(cfg.GlobalConfig.GetString(cfg.TogglApiToken))
-		result, err := toggl.Tasks.FetchAll()
 		if err != nil {
-			return nil, cobra.ShellCompDirectiveNoFileComp
+			return nil
 		}
-		var keys []string
-		for _, task := range result {
-			keys = append(keys, fmt.Sprintf("%s: %s", task.Id, task.Name))
-			//keys = append(keys, task.Key)
-		}
-		return keys, cobra.ShellCompDirectiveNoFileComp
-	})
-
-	if err != nil {
-		return nil
-	}
-	return command
+	*/return command
 }

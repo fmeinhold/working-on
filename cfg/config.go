@@ -15,6 +15,7 @@ var (
 const (
 	TogglApiToken   = "toggl.api_token"
 	TogglDefaultWid = "toggl.default_wid"
+	TogglDefaultPid = "toggl.default_pid"
 )
 
 func parseGlobalConfig() (*viper.Viper, error) {
@@ -111,7 +112,7 @@ func GetDefaultProject() (int, error) {
 	defaultProject := ProjectConfig.GetString("default_project")
 
 	if defaultProject == "" {
-		return GlobalConfig.GetInt("default_project.pid"), nil
+		return GlobalConfig.GetInt(TogglDefaultPid), nil
 	}
 
 	return ProjectConfig.GetInt(fmt.Sprintf("projects.%s.toggl_project_pid", defaultProject)), nil
