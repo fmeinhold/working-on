@@ -96,8 +96,8 @@ func (tc *TimeEntriesClient) Current() (*TimeEntry, error) {
 	return &timeEntry, nil
 }
 
-func (t *TimeEntriesClient) MostRecent() ([]TimeEntry, error) {
-	rawMessage, err := t.config.SendRequest("GET", fmt.Sprintf("me/time_entries"), nil)
+func (tc *TimeEntriesClient) MostRecent() ([]TimeEntry, error) {
+	rawMessage, err := tc.config.SendRequest("GET", fmt.Sprintf("me/time_entries"), nil)
 	var timeEntries []TimeEntry
 	err = json.Unmarshal(*rawMessage, &timeEntries)
 
