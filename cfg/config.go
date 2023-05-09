@@ -71,7 +71,9 @@ func parseProjectConfig(create bool) (*viper.Viper, error) {
 
 		}
 		if err := config.ReadInConfig(); err != nil {
-			return config, err
+			if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+				return nil, err
+			}
 		}
 	}
 
@@ -112,7 +114,7 @@ func GetDefaultProject() (int, error) {
 	defaultProject := ProjectConfig.GetString("default_project")
 
 	if defaultProject == "" {
-		return GlobalConfig.GetInt(TogglDefaultPid), nil
+		return 0, nil
 	}
 
 	return ProjectConfig.GetInt(fmt.Sprintf("projects.%s.toggl_project_pid", defaultProject)), nil

@@ -13,12 +13,12 @@ var (
 	Wid int
 )
 
-func bindFlag(name string, flags *pflag.FlagSet) error {
+func bindFlag(flag string, key string, flags *pflag.FlagSet) error {
 
-	f := flags.Lookup(name)
+	f := flags.Lookup(flag)
 
-	if !f.Changed && cfg.GlobalConfig.IsSet(cfg.TogglDefaultPid) {
-		val := cfg.GlobalConfig.Get(cfg.TogglDefaultPid)
+	if !f.Changed && cfg.GlobalConfig.IsSet(key) {
+		val := cfg.GlobalConfig.Get(key)
 		err := flags.Set(f.Name, fmt.Sprintf("%v", val))
 		if err != nil {
 			return err
@@ -40,7 +40,7 @@ __  _  _____________|  | _|__| ____    ____     ____   ____
                          \/       \//_____/               \/ 
 
 `,
-		SilenceUsage: false,
+		SilenceUsage: true,
 	}
 
 	err := cfg.InitGlobalConfig()
@@ -51,12 +51,12 @@ __  _  _____________|  | _|__| ____    ____     ____   ____
 	rootCmd.PersistentFlags().IntVarP(&Pid, "pid", "p", -1, "Set toggl project id")
 	rootCmd.PersistentFlags().IntVarP(&Wid, "wid", "w", -1, "Set toggl workspace id")
 
-	err = bindFlag("pid", rootCmd.PersistentFlags())
+	err = bindFlag("pid", cfg.TogglDefaultPid, rootCmd.PersistentFlags())
 	if err != nil {
 		return nil, err
 	}
 
-	err = bindFlag("wid", rootCmd.PersistentFlags())
+	err = bindFlag("wid", cfg.TogglDefaultWid, rootCmd.PersistentFlags())
 	if err != nil {
 		return nil, err
 	}

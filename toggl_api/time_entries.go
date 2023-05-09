@@ -33,7 +33,11 @@ type TimeEntry struct {
 func (t TimeEntry) String() string {
 	//isRunning := t.Duration < 0
 
-	return fmt.Sprintf("'%s' %s (tid: %d)", t.Description, time.Since(*t.Start).Truncate(time.Minute), t.Id)
+	return fmt.Sprintf("'%s' %s, %s (tid: %d)", t.Description, t.Start, time.Duration(t.Duration)*time.Second, t.Id)
+}
+
+func (t TimeEntry) IsSet() bool {
+	return t.Id > 0
 }
 
 func NewTimeEntryRunning(wid int, pid int, description string, running bool, billable bool, start *time.Time) *TimeEntry {
@@ -108,6 +112,26 @@ func (tc *TimeEntriesClient) MostRecent() ([]TimeEntry, error) {
 		return timeEntries, nil
 	}
 	return nil, nil
+}
+
+func (tc *TimeEntriesClient) Create(timeEntry *TimeEntry) (*TimeEntry, error) {
+	data, err := json.Marshal(timeEntry)
+
+	if err != nil {
+		return nil, err
+	}
+
+	reader := bytes.NewReader(data)
+	rawMessage, err := tc.config.SendRequest("POST", fmt.Sprintf("workspaces/%d/time_entries", timeEntry.WorkspaceID), reader)
+	if err != nil {
+		return nil, err
+	}
+	err = json.Unmarshal(*rawMessage, &timeEntry)
+	if err != nil {
+		return nil, err
+	}
+
+	return timeEntry, nil
 }
 
 func (tc *TimeEntriesClient) StopCurrent() (*TimeEntry, error) {

@@ -7,8 +7,6 @@ import (
 	"github.com/fmeinhold/workingon/toggl_api"
 	"github.com/spf13/cobra"
 	"regexp"
-	"strings"
-	"time"
 )
 
 func newStartCommand() *cobra.Command {
@@ -21,29 +19,41 @@ Either from a template set in your cfg file
 or by description/key, start time and duration`,
 
 		Args: func(cmd *cobra.Command, args []string) error {
-			times, description := GuessTypes(args)
-
 			err := cfg.InitProjectConfig(false)
 			if err != nil {
-				panic(err)
+				return err
 			}
 
-			if Pid == 0 {
+			localPid, err := cfg.GetDefaultProject()
+
+			if Pid == 0 && localPid == 0 {
 				return fmt.Errorf("no pid set in config file or --pid/-p")
-			}
-
-			var start time.Time
-
-			if len(times) == 1 {
-				start = times[0]
-			} else {
-				start = time.Now()
-
+			} else if localPid != 0 {
+				Pid = localPid
 			}
 
 			toggl := toggl_api.NewToggl(cfg.GlobalConfig.GetString(cfg.TogglApiToken))
 
-			timeEntry := toggl_api.NewTimeEntryRunning(cfg.GlobalConfig.GetInt(cfg.TogglDefaultWid), Pid, strings.Join(description, " "), true, true, &start)
+			current, err := toggl.TimeEntries.Current()
+			if err != nil {
+				return err
+			}
+
+			if current.IsSet() {
+				current, err = toggl.TimeEntries.Stop(current)
+				if err != nil {
+					return err
+				}
+			}
+
+			timeEntry, err := newTimeEntryFromArgs(args)
+			if err != nil {
+				return err
+			}
+
+			timeEntry.WorkspaceID = Wid
+			timeEntry.ProjectID = Pid
+			timeEntry.Duration = timeEntry.Duration * -1
 
 			timeEntry, err = toggl.TimeEntries.Start(timeEntry)
 			if err != nil {

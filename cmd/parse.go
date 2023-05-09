@@ -1,24 +1,54 @@
 package cmd
 
 import (
+	"fmt"
+	"github.com/fmeinhold/workingon/toggl_api"
 	"strings"
 	"time"
 )
 
-func GuessTypes(args []string) ([]time.Time, []string) {
-	var result []time.Time
+func parseTime(arg string) *time.Time {
+	today := time.Now()
+
+	t, err := time.ParseInLocation("15:04", arg, today.Location())
+	if err != nil {
+		return nil
+	}
+	t = time.Date(today.Year(), today.Month(), today.Day(), t.Hour(), t.Minute(), 0, 0, today.Location())
+	return &t
+}
+
+func newTimeEntryFromArgs(args []string) (*toggl_api.TimeEntry, error) {
+	timeEntry := &toggl_api.TimeEntry{}
+
 	var description []string
+
 	today := time.Now()
 	for _, arg := range args {
 
+		duration, err := time.ParseDuration(arg)
+		if err == nil {
+			fmt.Println("duration detected", duration, duration.Seconds())
+			timeEntry.Duration = int64(duration.Seconds())
+			continue
+		}
+
 		if strings.Contains(arg, "-") {
-			times, _ := GuessTypes(strings.Split(arg, "-"))
-			if len(times) != 2 {
+			val := strings.Split(arg, "-")
+			if len(val) != 2 {
 				description = append(description, arg)
 				continue
 			}
+			from := parseTime(val[0])
+			to := parseTime(val[1])
 
-			result = append(result, times...)
+			if from != nil && to != nil {
+				timeEntry.Start = from
+				timeEntry.Duration = int64(to.Sub(*from).Seconds())
+			} else {
+				description = append(description, arg)
+				continue
+			}
 
 		} else if strings.Contains(arg, ".") {
 			// try different layouts
@@ -32,19 +62,23 @@ func GuessTypes(args []string) ([]time.Time, []string) {
 				if t.Year() == 0 {
 					t = time.Date(today.Year(), t.Month(), t.Day(), 0, 0, 0, 0, today.Location())
 				}
-				result = append(result, t)
+				timeEntry.Start = &t
 			}
 			// Time
 		} else if strings.Contains(arg, ":") {
-			t, err := time.ParseInLocation("15:04", arg, today.Location())
-			if err != nil {
-				description = append(description, arg)
-				continue
-			}
-			t = time.Date(today.Year(), today.Month(), today.Day(), t.Hour(), t.Minute(), 0, 0, today.Location())
-
-			result = append(result, t)
+			timeEntry.Start = parseTime(arg)
+			timeEntry.Duration = timeEntry.Start.Unix()
+		} else {
+			description = append(description, arg)
 		}
 	}
-	return result, description
+
+	if timeEntry.Start == nil || timeEntry.Start.IsZero() {
+		now := time.Now()
+		timeEntry.Start = &now
+		timeEntry.Duration = now.Unix()
+	}
+	timeEntry.Description = strings.Join(description, " ")
+
+	return timeEntry, nil
 }
