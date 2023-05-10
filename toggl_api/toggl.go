@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	baseURL       = "https://api.track.toggl.com/api/v9/"
-	shortDuration = 1000 * time.Millisecond
+	baseURL = "https://api.track.toggl.com/api/v9/"
+	timeout = 30 * time.Second
 )
 
 type Toggl struct {
@@ -59,7 +59,7 @@ func (r *RequestConfig) SendRequest(method string, endpoint string, body io.Read
 		return nil, err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), shortDuration)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	req = req.WithContext(ctx)
