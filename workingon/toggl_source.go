@@ -8,6 +8,7 @@ import (
 type TogglSource struct {
 	client *toggl.Toggl
 	wid    int
+	cache  *TaskCache
 }
 
 func init() {
@@ -21,20 +22,29 @@ func (t *TogglSource) GetName() string {
 	return "toggl"
 }
 
+// Handles reports whether key is a toggl task id, which is always a positive
+// integer.
+func (t *TogglSource) Handles(key string) bool {
+	id, err := strconv.Atoi(key)
+	return err == nil && id > 0
+}
+
 func (t *TogglSource) GetTasks() ([]Task, error) {
-	taskList, err := t.client.TaskClient.List(t.wid)
+	cached, err := t.cache.Tasks()
 	if err != nil {
 		return nil, err
 	}
 
 	var tasks []Task
 
-	for _, task := range taskList.Tasks {
+	for _, task := range cached {
 		tasks = append(tasks, Task{
 			Key:     strconv.Itoa(task.Id),
 			Summary: task.Name,
 			Project: Project{
-				Key: strconv.Itoa(task.Pid),
+				Key:          strconv.Itoa(task.ProjectId),
+				Name:         task.ProjectName,
+				TogglProject: task.ProjectId,
 			},
 			TogglTask: task.Id,
 		})
@@ -64,7 +74,32 @@ func (t *TogglSource) GetProjects() ([]Project, error) {
 func (t *TogglSource) Configure(cfg *Config) error {
 	t.client = toggl.NewToggl(cfg.Settings.ToggleApiToken)
 	t.wid = cfg.Settings.ToggleWid
+	t.cache = NewTaskCache(t.client, t.wid, cfg.Settings.ToggleApiToken)
 	return nil
+}
+
+// RefreshCache rebuilds the local task cache from scratch.
+func (t *TogglSource) RefreshCache() error {
+	if t.cache == nil {
+		return nil
+	}
+	return t.cache.Refresh()
+}
+
+// ClearCache removes the local task cache.
+func (t *TogglSource) ClearCache() error {
+	if t.cache == nil {
+		return nil
+	}
+	return t.cache.Clear()
+}
+
+// CachePath is where this source keeps its task cache, empty if it has none.
+func (t *TogglSource) CachePath() string {
+	if t.cache == nil {
+		return ""
+	}
+	return t.cache.path
 }
 
 func (t *TogglSource) GetTask(key string) (*Task, error) {
@@ -72,7 +107,9 @@ func (t *TogglSource) GetTask(key string) (*Task, error) {
 	if err != nil {
 		return nil, err
 	}
-	task, err := t.client.TaskClient.Get(tid)
+	// v9 addresses tasks under their project, so an id-only lookup has to go
+	// through the workspace listing. The cache keeps that off the hot path.
+	task, err := t.cache.Find(tid)
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +117,9 @@ func (t *TogglSource) GetTask(key string) (*Task, error) {
 		Key:     strconv.Itoa(task.Id),
 		Summary: task.Name,
 		Project: Project{
-			Key: strconv.Itoa(task.Pid),
+			Key:          strconv.Itoa(task.ProjectId),
+			Name:         task.ProjectName,
+			TogglProject: task.ProjectId,
 		},
 		TogglTask: task.Id,
 	}, nil

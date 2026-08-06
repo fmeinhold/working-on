@@ -3,8 +3,8 @@
 ## What it is
 
 First and foremost it's useful to me - it's a tool to easly track my time with toggl track from the command line,
-using different sources as tasks. At the moment working-on only supports toggl and jira as sources, but this might 
-change in the future. It is also an excuse to learn go.
+using different sources as tasks. At the moment toggl is the only source, but the source interface is there so
+others can be added. It is also an excuse to learn go.
 
 It has only been tested on MacOS and Linux so far.
 

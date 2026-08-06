@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"github.com/fefeme/workingon/toggl"
 	"github.com/fefeme/workingon/workingon"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -47,15 +46,9 @@ Either from a template set in your config file
 or by description/key, start time and duration`,
 
 			Args: func(cmd *cobra.Command, args []string) error {
-
-				parseArgsConfig := ParseArgsConfig{
-					defaultDateFormat:     cfg.Settings.DateLayout,
-					defaultDateTimeFormat: cfg.Settings.DateTimeLayout,
-					defaultLocation:       &cfg.Settings.Location,
-				}
-
-				start, duration, tail = ParseArgs(&parseArgsConfig, args)
-				return nil
+				var err error
+				start, duration, tail, err = ParseArgs(newParseArgsConfig(cfg), args)
+				return err
 			},
 			RunE: func(cmd *cobra.Command, args []string) error {
 
@@ -80,17 +73,9 @@ or by description/key, start time and duration`,
 				}
 
 				if append_ {
-					c := toggl.NewToggl(cfg.Settings.ToggleApiToken)
-					t, err := c.TimeEntries.MostRecent()
+					start, err = workingon.AppendStartTime(cfg)
 					if err != nil {
 						return err
-					}
-					if t != nil {
-						if t.Stop == nil {
-							start = t.Start.Add(time.Duration(t.Duration) * time.Second)
-						} else {
-							start = *t.Stop
-						}
 					}
 				}
 

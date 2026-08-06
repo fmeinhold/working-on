@@ -25,16 +25,16 @@ __  _  _____________|  | _|__| ____    ____     ____   ____
 
 func Execute() {
 	cfg, err := workingon.InitConfig()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		os.Exit(1)
+	}
 
 	for _, source := range workingon.Registry.RegisteredSources {
-		err := source.Configure(cfg)
-		if err != nil {
-			fmt.Println(err)
+		if err := source.Configure(cfg); err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
 			os.Exit(1)
 		}
-	}
-	if err != nil {
-		panic(err)
 	}
 	rootCmd.AddCommand(
 		NewAddCommand(cfg),
@@ -43,6 +43,8 @@ func Execute() {
 		NewTasksCommand(cfg),
 		NewWhatCommand(cfg),
 		NewStopCommand(cfg),
+		NewContinueCommand(cfg),
+		NewCacheCommand(cfg),
 	)
 
 	if err := rootCmd.Execute(); err != nil {

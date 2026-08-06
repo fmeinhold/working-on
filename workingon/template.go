@@ -23,7 +23,7 @@ func (t *TemplateConfig) CreateTimeEntryFromTemplate(templateArgs map[string]str
 
 	timeEntry := toggl.TimeEntry{
 		Description: description.String(),
-		Tid:         t.TogglTask,
+		TaskId:      t.TogglTask,
 		Billable:    false,
 		CreatedWith: toggl.CreatedWith,
 	}
@@ -46,7 +46,7 @@ func (t *TemplateConfig) CreateTimeEntryFromTemplate(templateArgs map[string]str
 	}
 
 	if t.TogglTask > 0 {
-		timeEntry.Tid = t.TogglTask
+		timeEntry.TaskId = t.TogglTask
 	}
 
 	if timeEntry.Stop != nil && timeEntry.Duration == 0 {

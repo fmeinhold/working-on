@@ -25,14 +25,9 @@ func NewStartCommand(cfg *workingon.Config) *cobra.Command {
 		Short: "Start working on a task",
 		Long:  `Start working on a task`,
 		Args: func(cmd *cobra.Command, args []string) error {
-			parseArgsConfig := ParseArgsConfig{
-				defaultDateFormat:     cfg.Settings.DateLayout,
-				defaultDateTimeFormat: cfg.Settings.DateTimeLayout,
-				defaultLocation:       &cfg.Settings.Location,
-			}
-
-			start, duration, tail = ParseArgs(&parseArgsConfig, args)
-			return nil
+			var err error
+			start, duration, tail, err = ParseArgs(newParseArgsConfig(cfg), args)
+			return err
 		},
 
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -40,6 +35,25 @@ func NewStartCommand(cfg *workingon.Config) *cobra.Command {
 			templateArgs, err := cmd.Flags().GetStringToString("templateArgs")
 			if err != nil {
 				return err
+			}
+
+			if appendTo {
+				// Back-date the timer to where the last entry ended, so the
+				// gap since then belongs to this task.
+				start, err = workingon.AppendStartTime(cfg)
+				if err != nil {
+					return err
+				}
+			}
+
+			if cont {
+				timeEntry, err := workingon.ContinueLast(cfg, start, dry)
+				if err != nil {
+					return err
+				}
+				fmt.Printf("Continuing: %s \n",
+					timeEntry.Format(cfg.Settings.DateTimeLayout, &cfg.Settings.Location))
+				return nil
 			}
 
 			wid, err := cmd.Flags().GetInt("wid")
@@ -52,7 +66,6 @@ func NewStartCommand(cfg *workingon.Config) *cobra.Command {
 				return err
 			}
 
-
 			timeEntry, err := workingon.AddOrStart(cmd, cfg, wid, project, strings.Join(tail, " "), start,
 				duration, templateArgs, true)
 			if err != nil {
@@ -64,6 +77,7 @@ func NewStartCommand(cfg *workingon.Config) *cobra.Command {
 
 		},
 	}
+
 	startCommand.Flags().BoolVarP(&appendTo, "append", "a", false, "Use stop time of last time entry as start time for this task")
 	startCommand.Flags().BoolVarP(&cont, "continue", "c", false, "Continue last task")
 	startCommand.Flags().BoolVarP(&dry, "dry", "d", false, "Do not create anything in toggl")

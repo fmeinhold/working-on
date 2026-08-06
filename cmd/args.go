@@ -2,133 +2,298 @@ package cmd
 
 import (
 	"fmt"
-	"github.com/fefeme/workingon/util"
-	"github.com/fefeme/workingon/workingon"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/fefeme/workingon/workingon"
 )
 
 var (
-	//isTime = regexp.MustCompile("^\\d{1,2}:\\d{2}$")
-	isDay         = regexp.MustCompile("^\\d{1,2}")
-	isDayAndMonth = regexp.MustCompile("^(\\d{1,2}).(\\d{2})$")
-	isTime        = regexp.MustCompile("^\\d{1,2}:\\d{2}$")
-	isTimeRange   = regexp.MustCompile("^(\\d{1,2}:\\d{2})-(\\d{1,2}:\\d{2})$")
+	isTime      = regexp.MustCompile(`^(\d{1,2}):(\d{2})$`)
+	isTimeRange = regexp.MustCompile(`^(\d{1,2}:\d{2})-(\d{1,2}:\d{2})$`)
+	isSeparator = regexp.MustCompile(`[^0-9A-Za-z]+`)
 )
+
+// weekdays maps both "mon" and "monday" onto time.Monday, for every day.
+var weekdays = func() map[string]time.Weekday {
+	names := make(map[string]time.Weekday, 14)
+	for day := time.Sunday; day <= time.Saturday; day++ {
+		name := strings.ToLower(day.String())
+		names[name] = day
+		names[name[:3]] = day
+	}
+	return names
+}()
 
 type ParseArgsConfig struct {
 	defaultDateFormat     string
 	defaultDateTimeFormat string
 	defaultLocation       *time.Location
+
+	// now overrides the clock, so tests do not depend on the day they run.
+	now func() time.Time
 }
 
-func ParseDateFromArg(date string, cfg *workingon.Config) time.Time {
-	m := isDay.MatchString(date)
-
-	if m {
-		year, month, day := time.Now().Date()
-		day, _ = strconv.Atoi(date)
-		return time.Date(year, month, day, 0, 0, 0, 0, &cfg.Settings.Location)
+func newParseArgsConfig(cfg *workingon.Config) *ParseArgsConfig {
+	return &ParseArgsConfig{
+		defaultDateFormat:     cfg.Settings.DateLayout,
+		defaultDateTimeFormat: cfg.Settings.DateTimeLayout,
+		defaultLocation:       &cfg.Settings.Location,
 	}
-
-	matches := isDayAndMonth.FindStringSubmatch(date)
-	if len(matches) > 0 {
-		year, _, _ := time.Now().Date()
-		day, _ := strconv.Atoi(matches[0])
-		month, _ := strconv.Atoi(matches[1])
-		return time.Date(year, time.Month(month), day, 0, 0, 0, 0, &cfg.Settings.Location)
-	}
-
-	return time.Time{}
 }
 
-func tryTime(value string, dateLayout string, dateTimeLayout string, loc *time.Location) (dt *time.Time, err error) {
-	var t time.Time
-	if isTime.MatchString(value) {
-		t = time.Now()
-		value = fmt.Sprintf("%s %s", t.Format(dateLayout), value)
-		t, err = time.ParseInLocation(dateTimeLayout, value, loc)
-		if err != nil {
-			return nil, err
-		}
-		t = t.UTC()
-		return &t, nil
+func (c *ParseArgsConfig) location() *time.Location {
+	if c.defaultLocation != nil {
+		return c.defaultLocation
 	}
-	return nil, fmt.Errorf("%s is not a time", value)
-
+	return time.Local
 }
 
-func tryDate(value string, dateLayout string, loc *time.Location) (*time.Time, error) {
-	dt, err := time.ParseInLocation(dateLayout, value, loc)
-	if err != nil {
-		if value == "yesterday" {
-			dt = time.Now().AddDate(0, 0, -1)
-			return &dt, nil
-		}
-		return nil, err
+func (c *ParseArgsConfig) currentTime() time.Time {
+	if c.now != nil {
+		return c.now().In(c.location())
 	}
-	return &dt, nil
+	return time.Now().In(c.location())
 }
 
-func tryDuration(value string, config *ParseArgsConfig) (*time.Time, time.Duration, error) {
-	var m = isTimeRange.FindStringSubmatch(value)
-
-	//fmt.Printf("Match duration '%v', '%v' (%v)", value, m, len(m))
-	if len(m) > 0 {
-		start, err := util.ParseTimeUTCE(m[1], config.defaultDateFormat, config.defaultDateTimeFormat, config.defaultLocation)
-		if err != nil {
-			return nil, 0, err
-		}
-
-		end, err := util.ParseTimeUTCE(m[2], config.defaultDateFormat, config.defaultDateTimeFormat, config.defaultLocation)
-		if err != nil {
-			return nil, 0, err
-		}
-		return &start, end.Sub(start), nil
-	} else {
-		duration, err := time.ParseDuration(value)
-		if err == nil {
-			return nil, duration, nil
-		}
-	}
-	return nil, 0, nil
+// clockTime is a wall clock reading with no date or zone attached. Keeping the
+// time of day separate from the date is what makes argument order irrelevant:
+// the two are only combined, in one location, once every argument is read.
+type clockTime struct {
+	hour   int
+	minute int
 }
 
-func ParseArgs(config *ParseArgsConfig, args []string) (start time.Time, duration time.Duration, tail []string) {
-	// initialize start time
-	start = time.Now()
+func (c clockTime) sub(other clockTime) time.Duration {
+	minutes := (c.hour-other.hour)*60 + (c.minute - other.minute)
+	return time.Duration(minutes) * time.Minute
+}
+
+// ParseArgs reads a free-form argument list into a start time, a duration and
+// whatever text was left over.
+//
+// Arguments may appear in any order: "yesterday 15:30-17:30" and
+// "15:30-17:30 yesterday" produce the same instant.
+func ParseArgs(config *ParseArgsConfig, args []string) (time.Time, time.Duration, []string, error) {
+	loc := config.location()
+	now := config.currentTime()
+
+	year, month, day := now.Date()
+	clock := clockTime{hour: now.Hour(), minute: now.Minute()}
+
+	var (
+		duration time.Duration
+		tail     []string
+	)
 
 	for _, arg := range args {
 		arg = strings.TrimSpace(arg)
-		//fmt.Printf("Checking %v (%d) \n", arg, i)
-		var valid = false
-		dt, d, err := tryDuration(arg, config)
-		if d != 0 {
-			duration = d
-			if dt != nil {
-				start = time.Date(start.Year(), start.Month(), start.Day(), dt.Hour(), dt.Minute(), 0, 0, time.UTC)
+		if arg == "" {
+			continue
+		}
+
+		if from, span, matched, err := tryTimeRange(arg); matched {
+			if err != nil {
+				return time.Time{}, 0, nil, err
 			}
-			valid = true
+			clock, duration = from, span
 			continue
 		}
-		dt, err = tryDate(arg, config.defaultDateFormat, config.defaultLocation)
-		if err == nil {
-			start = time.Date(dt.Year(), dt.Month(),dt.Day(), start.Hour(), start.Minute(), 0, 0, config.defaultLocation)
-			valid = true
+
+		if at, matched, err := tryClock(arg); matched {
+			if err != nil {
+				return time.Time{}, 0, nil, err
+			}
+			clock = at
 			continue
 		}
-		dt, err = tryTime(arg, config.defaultDateFormat, config.defaultDateTimeFormat, config.defaultLocation)
-		if err == nil {
-			start = time.Date(start.Year(), start.Month(), start.Day(), dt.Hour(), dt.Minute(), 0, 0, config.defaultLocation)
-			valid = true
+
+		if span, err := time.ParseDuration(arg); err == nil && span > 0 {
+			duration = span
 			continue
 		}
-		if !valid {
-			tail = append(tail, arg)
-			//fmt.Printf("Neither a duration or a time %v -> %v \n", arg, tail)
+
+		if date, matched, err := tryDate(arg, config); matched {
+			if err != nil {
+				return time.Time{}, 0, nil, err
+			}
+			year, month, day = date.Date()
+			continue
 		}
+
+		tail = append(tail, arg)
 	}
-	return start, duration, tail
+
+	start := time.Date(year, month, day, clock.hour, clock.minute, 0, 0, loc)
+
+	return start.UTC(), duration, tail, nil
+}
+
+// tryClock reads "15:30". The bool reports whether the argument looked like a
+// time at all, so a malformed one is rejected rather than silently treated as
+// part of the description.
+func tryClock(value string) (clockTime, bool, error) {
+	match := isTime.FindStringSubmatch(value)
+	if match == nil {
+		return clockTime{}, false, nil
+	}
+
+	hour, _ := strconv.Atoi(match[1])
+	minute, _ := strconv.Atoi(match[2])
+
+	if hour > 23 || minute > 59 {
+		return clockTime{}, true, fmt.Errorf("%q is not a valid time of day", value)
+	}
+
+	return clockTime{hour: hour, minute: minute}, true, nil
+}
+
+// tryTimeRange reads "15:30-17:30" into a start time and a duration.
+func tryTimeRange(value string) (clockTime, time.Duration, bool, error) {
+	match := isTimeRange.FindStringSubmatch(value)
+	if match == nil {
+		return clockTime{}, 0, false, nil
+	}
+
+	from, _, err := tryClock(match[1])
+	if err != nil {
+		return clockTime{}, 0, true, err
+	}
+
+	to, _, err := tryClock(match[2])
+	if err != nil {
+		return clockTime{}, 0, true, err
+	}
+
+	duration := to.sub(from)
+	if duration <= 0 {
+		return clockTime{}, 0, true, fmt.Errorf("%q ends at or before it starts", value)
+	}
+
+	return from, duration, true, nil
+}
+
+// datePrefix is a date layout together with the components it carries.
+type datePrefix struct {
+	layout   string
+	hasMonth bool
+	hasYear  bool
+}
+
+// datePrefixLayouts derives the configured date layout and its shorter
+// prefixes, longest first, so a layout of "2.1.2006" also accepts "6.8" and
+// "6". Anything the prefix omits is filled in from the current date.
+func datePrefixLayouts(layout string) []datePrefix {
+	fields := isSeparator.Split(layout, -1)
+	separators := isSeparator.FindAllString(layout, -1)
+
+	var prefixes []datePrefix
+
+	for count := len(fields); count >= 1; count-- {
+		var (
+			builder strings.Builder
+			prefix  datePrefix
+			known   = true
+		)
+
+		for i := 0; i < count; i++ {
+			if i > 0 {
+				builder.WriteString(separators[i-1])
+			}
+			builder.WriteString(fields[i])
+
+			switch dateFieldKind(fields[i]) {
+			case "month":
+				prefix.hasMonth = true
+			case "year":
+				prefix.hasYear = true
+			case "day":
+			default:
+				known = false
+			}
+		}
+
+		if !known {
+			continue
+		}
+
+		prefix.layout = builder.String()
+		prefixes = append(prefixes, prefix)
+	}
+
+	return prefixes
+}
+
+// dateFieldKind names the component a reference-layout field stands for.
+func dateFieldKind(field string) string {
+	switch field {
+	case "2", "02", "_2":
+		return "day"
+	case "1", "01", "Jan", "January":
+		return "month"
+	case "2006", "06":
+		return "year"
+	}
+	return ""
+}
+
+// tryDate reads a date argument: a full or partial date in the configured
+// layout, a weekday name, "today" or "yesterday".
+func tryDate(value string, config *ParseArgsConfig) (time.Time, bool, error) {
+	loc := config.location()
+	now := config.currentTime()
+
+	switch strings.ToLower(value) {
+	case "today":
+		return startOfDay(now, loc), true, nil
+	case "yesterday":
+		return startOfDay(now.AddDate(0, 0, -1), loc), true, nil
+	}
+
+	if weekday, exists := weekdays[strings.ToLower(value)]; exists {
+		// The most recent such weekday, which is today if today matches.
+		day := now
+		for day.Weekday() != weekday {
+			day = day.AddDate(0, 0, -1)
+		}
+		return startOfDay(day, loc), true, nil
+	}
+
+	for _, prefix := range datePrefixLayouts(config.defaultDateFormat) {
+		parsed, err := time.ParseInLocation(prefix.layout, value, loc)
+		if err != nil {
+			continue
+		}
+
+		year, month, day := parsed.Date()
+		if !prefix.hasYear {
+			year = now.Year()
+		}
+		if !prefix.hasMonth {
+			month = now.Month()
+		}
+
+		return time.Date(year, month, day, 0, 0, 0, 0, loc), true, nil
+	}
+
+	return time.Time{}, false, nil
+}
+
+// ParseDateFromArg reads the --date flag of `wo what`.
+func ParseDateFromArg(date string, cfg *workingon.Config) (time.Time, error) {
+	parsed, matched, err := tryDate(date, newParseArgsConfig(cfg))
+	if err != nil {
+		return time.Time{}, err
+	}
+	if !matched {
+		return time.Time{}, fmt.Errorf("unable to read %q as a date", date)
+	}
+	return parsed, nil
+}
+
+func startOfDay(t time.Time, loc *time.Location) time.Time {
+	year, month, day := t.Date()
+	return time.Date(year, month, day, 0, 0, 0, 0, loc)
 }

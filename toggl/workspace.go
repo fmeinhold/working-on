@@ -1,7 +1,6 @@
 package toggl
 
 import (
-	"encoding/json"
 	"fmt"
 )
 
@@ -9,7 +8,6 @@ type WorkspaceList struct {
 	Count      int
 	Workspaces []Workspace
 }
-
 
 type ProjectList struct {
 	Count    int
@@ -21,7 +19,7 @@ type WorkspaceClient struct {
 }
 
 func (w *WorkspaceClient) GetWorkspaces() (*WorkspaceList, error) {
-	message, err := w.client.NewMessage("GET", "workspaces", nil)
+	message, err := w.client.NewMessage("GET", "me/workspaces", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -32,7 +30,7 @@ func (w *WorkspaceClient) GetWorkspaces() (*WorkspaceList, error) {
 	}
 
 	var workspaces []Workspace
-	if err := json.Unmarshal(*data, &workspaces); err != nil {
+	if err := decodeList(*data, &workspaces); err != nil {
 		return nil, err
 	}
 
@@ -54,11 +52,12 @@ func (w *WorkspaceClient) ListProjects(wid int) (*ProjectList, error) {
 	}
 
 	var projects []Project
-	err = json.Unmarshal(*data, &projects)
+	if err := decodeList(*data, &projects); err != nil {
+		return nil, err
+	}
 
 	return &ProjectList{
 		Projects: projects,
 		Count:    len(projects),
 	}, nil
-
 }

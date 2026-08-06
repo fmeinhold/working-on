@@ -33,13 +33,18 @@ func NewWhatCommand(cfg *workingon.Config) *cobra.Command {
 					start = time.Date(year, month, day, 0, 0, 0, 0, &cfg.Settings.Location)
 					end = time.Now()
 				} else if flagYesterday {
-					year, month, day := time.Now().AddDate(0,0,-1).Date()
+					year, month, day := time.Now().AddDate(0, 0, -1).Date()
 					start = time.Date(year, month, day, 0, 0, 0, 0, &cfg.Settings.Location)
 					end = time.Now()
 
 				} else {
-					start = ParseDateFromArg(date, cfg)
-					end = time.Date(start.Year(), start.Month(), start.Day(), 23, 59, 59, int(time.Second-time.Nanosecond), time.Now().Location())
+					var err error
+					start, err = ParseDateFromArg(date, cfg)
+					if err != nil {
+						return err
+					}
+					end = time.Date(start.Year(), start.Month(), start.Day(), 23, 59, 59,
+						int(time.Second-time.Nanosecond), &cfg.Settings.Location)
 				}
 
 				timeEntries, err := cl.TimeEntries.List(&start, &end)

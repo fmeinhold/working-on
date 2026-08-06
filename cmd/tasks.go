@@ -65,6 +65,11 @@ func initConfigTasks(tasksCommand *cobra.Command) {
 			Use:   strings.ToLower(source.GetName()),
 			Short: fmt.Sprintf("Get tasks from %s", source.GetName()),
 			RunE: func(cmd *cobra.Command, args []string) error {
+				if refresh, _ := cmd.Flags().GetBool("refresh"); refresh {
+					if err := refreshCache(source); err != nil {
+						return err
+					}
+				}
 				table, err := loadTasks(source)
 				if err != nil {
 					return err
@@ -87,7 +92,14 @@ func NewTasksCommand(cfg *workingon.Config) *cobra.Command {
 		Short: "List all tasks from all sources",
 		Long:  `List all tasks from all sources`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			refresh, _ := cmd.Flags().GetBool("refresh")
+
 			for _, source := range workingon.Registry.RegisteredSources {
+				if refresh {
+					if err := refreshCache(source); err != nil {
+						return err
+					}
+				}
 				table, err := loadTasks(source)
 				if err != nil {
 					return err
@@ -103,6 +115,9 @@ func NewTasksCommand(cfg *workingon.Config) *cobra.Command {
 			return nil
 		},
 	}
+	tasksCommand.PersistentFlags().BoolP("refresh", "r", false,
+		"Rebuild the local task cache before listing")
+
 	initConfigTasks(tasksCommand)
 	return tasksCommand
 }

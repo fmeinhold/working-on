@@ -42,7 +42,6 @@ func NewProjectsCommand(cfg *workingon.Config) *cobra.Command {
 			}
 
 			for _, source := range workingon.Registry.RegisteredSources {
-				fmt.Println(args, source.GetName())
 				if len(args) > 0 && !util.StringInSliceI(source.GetName(), args) {
 					continue
 				}
@@ -50,6 +49,11 @@ func NewProjectsCommand(cfg *workingon.Config) *cobra.Command {
 				spinner.Start()
 				projects, err := source.GetProjects()
 				spinner.Stop()
+
+				if len(projects) > 0 {
+					fmt.Println(source.GetName())
+				}
+
 				if err != nil {
 					return err
 				}
