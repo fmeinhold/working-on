@@ -66,8 +66,22 @@ func NewStartCommand(cfg *workingon.Config) *cobra.Command {
 				return err
 			}
 
-			timeEntry, err := workingon.AddOrStart(cmd, cfg, wid, project, strings.Join(tail, " "), start,
-				duration, templateArgs, true)
+			task, err := cmd.Flags().GetString("task")
+			if err != nil {
+				return err
+			}
+
+			timeEntry, err := workingon.AddOrStart(cfg, workingon.EntryRequest{
+				Wid:          wid,
+				Project:      project,
+				Task:         task,
+				SummaryOrKey: strings.Join(tail, " "),
+				Start:        start,
+				Duration:     duration,
+				TemplateArgs: templateArgs,
+				Running:      true,
+				DryRun:       dry,
+			})
 			if err != nil {
 				return err
 			}
@@ -82,6 +96,7 @@ func NewStartCommand(cfg *workingon.Config) *cobra.Command {
 	startCommand.Flags().BoolVarP(&cont, "continue", "c", false, "Continue last task")
 	startCommand.Flags().BoolVarP(&dry, "dry", "d", false, "Do not create anything in toggl")
 	startCommand.Flags().StringVarP(&project, "project", "p", viper.GetString("TOGGL_PROJECT"), "Set project")
+	startCommand.Flags().String("task", "", "Set the toggl task, by id or by name")
 	startCommand.Flags().StringToStringP("templateArgs", "t", nil, "List of named template args")
 	startCommand.Flags().IntP("wid", "w", cfg.Settings.ToggleWid, "Toggle track workspace id")
 

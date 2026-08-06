@@ -485,6 +485,129 @@ func TestTaskCacheSurvivesTransientFailureDuringRebuild(t *testing.T) {
 	}
 }
 
+// namedTaskServer serves a fixed set of tasks with names and projects.
+func namedTaskServer(t *testing.T, dir string, rows string) (*TaskCache, *int) {
+	t.Helper()
+
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		fmt.Fprintf(w, `{"data":[%s],"page":1,"per_page":1000,"total_count":1}`, rows)
+	}))
+	t.Cleanup(srv.Close)
+
+	t.Setenv("XDG_CACHE_HOME", dir)
+
+	return NewTaskCache(toggl.NewTogglAt(testToken, srv.URL), 5, testToken), &requests
+}
+
+const namedTasks = `
+{"id":241929955,"name":"ATD Conference","project_id":91210706,"workspace_id":5},
+{"id":77918943,"name":"000 Conferences","project_id":91210706,"workspace_id":5},
+{"id":999,"name":"ATD Conference","project_id":164014679,"workspace_id":5}`
+
+func TestTaskCacheFindByName(t *testing.T) {
+	cache, _ := namedTaskServer(t, t.TempDir(), namedTasks)
+
+	if _, err := cache.Tasks(); err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name      string
+		projectId int
+		want      int
+	}{
+		{"ATD Conference", 91210706, 241929955},
+		{"atd conference", 91210706, 241929955},
+		{"ATD CONFERENCE", 91210706, 241929955},
+		{"ATD Conference", 164014679, 999},
+		{"000 Conferences", 91210706, 77918943},
+	}
+
+	for _, tc := range cases {
+		t.Run(fmt.Sprintf("%s in %d", tc.name, tc.projectId), func(t *testing.T) {
+			task := cache.LookupByName(tc.name, tc.projectId)
+			if task == nil {
+				t.Fatalf("LookupByName(%q, %d) found nothing", tc.name, tc.projectId)
+			}
+			if task.Id != tc.want {
+				t.Errorf("got task %d, want %d", task.Id, tc.want)
+			}
+		})
+	}
+}
+
+// The same name exists in two projects, so a workspace wide lookup cannot pick
+// one and must decline rather than guess.
+func TestTaskCacheDeclinesAnAmbiguousName(t *testing.T) {
+	cache, _ := namedTaskServer(t, t.TempDir(), namedTasks)
+
+	if _, err := cache.Tasks(); err != nil {
+		t.Fatal(err)
+	}
+
+	if task := cache.LookupByName("ATD Conference", 0); task != nil {
+		t.Errorf("got task %d for a name in two projects, want nothing", task.Id)
+	}
+}
+
+func TestTaskCacheLookupByNameMisses(t *testing.T) {
+	cache, _ := namedTaskServer(t, t.TempDir(), namedTasks)
+
+	if _, err := cache.Tasks(); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, name := range []string{"fixing the parser", "ATD", "Conference", ""} {
+		if task := cache.LookupByName(name, 91210706); task != nil {
+			t.Errorf("LookupByName(%q) matched task %d; the match must be exact", name, task.Id)
+		}
+	}
+}
+
+// LookupByName runs against every free text description, so paying a request
+// to discover a description is not a task name would undo the cache.
+func TestTaskCacheLookupByNameNeverCallsOut(t *testing.T) {
+	dir := t.TempDir()
+	cache, requests := namedTaskServer(t, dir, namedTasks)
+
+	if _, err := cache.Tasks(); err != nil {
+		t.Fatal(err)
+	}
+
+	warm := NewTaskCache(cache.client, 5, testToken)
+	before := *requests
+
+	for i := 0; i < 5; i++ {
+		warm.LookupByName("definitely not a task name", 91210706)
+	}
+
+	if *requests != before {
+		t.Errorf("made %d request(s) for cache-only lookups, want none", *requests-before)
+	}
+}
+
+// FindByName is for a task the user named, so a miss is worth one refresh.
+func TestTaskCacheFindByNameRefreshesOnMiss(t *testing.T) {
+	dir := t.TempDir()
+	cache, requests := namedTaskServer(t, dir, namedTasks)
+
+	if _, err := cache.Tasks(); err != nil {
+		t.Fatal(err)
+	}
+
+	warm := NewTaskCache(cache.client, 5, testToken)
+	before := *requests
+
+	if _, err := warm.FindByName("no such task", 91210706); err == nil {
+		t.Fatal("expected an error for a name that does not exist")
+	}
+	if *requests == before {
+		t.Error("FindByName did not refresh before giving up")
+	}
+}
+
 // A cache that cannot be placed on disk still works, it just never persists.
 func TestTaskCacheWithoutAPathStillServes(t *testing.T) {
 	dir := t.TempDir()

@@ -1,8 +1,10 @@
 package workingon
 
 import (
-	"github.com/fefeme/workingon/toggl"
+	"fmt"
 	"strconv"
+
+	"github.com/fefeme/workingon/toggl"
 )
 
 type TogglSource struct {
@@ -37,17 +39,8 @@ func (t *TogglSource) GetTasks() ([]Task, error) {
 
 	var tasks []Task
 
-	for _, task := range cached {
-		tasks = append(tasks, Task{
-			Key:     strconv.Itoa(task.Id),
-			Summary: task.Name,
-			Project: Project{
-				Key:          strconv.Itoa(task.ProjectId),
-				Name:         task.ProjectName,
-				TogglProject: task.ProjectId,
-			},
-			TogglTask: task.Id,
-		})
+	for i := range cached {
+		tasks = append(tasks, *togglTask(&cached[i]))
 	}
 
 	return tasks, nil
@@ -76,6 +69,45 @@ func (t *TogglSource) Configure(cfg *Config) error {
 	t.wid = cfg.Settings.ToggleWid
 	t.cache = NewTaskCache(t.client, t.wid, cfg.Settings.ToggleApiToken)
 	return nil
+}
+
+// LookupTaskByName resolves a task name from the local cache only.
+func (t *TogglSource) LookupTaskByName(name string, projectId int) *Task {
+	if t.cache == nil {
+		return nil
+	}
+	task := t.cache.LookupByName(name, projectId)
+	if task == nil {
+		return nil
+	}
+	return togglTask(task)
+}
+
+// FindTaskByName resolves a task name, refreshing the cache if it misses.
+func (t *TogglSource) FindTaskByName(name string, projectId int) (*Task, error) {
+	if t.cache == nil {
+		return nil, fmt.Errorf("%w: no task named %q", ErrTaskNotFound, name)
+	}
+
+	task, err := t.cache.FindByName(name, projectId)
+	if err != nil {
+		return nil, err
+	}
+	return togglTask(task), nil
+}
+
+// togglTask converts a cached toggl task into the shape sources return.
+func togglTask(task *toggl.Task) *Task {
+	return &Task{
+		Key:     strconv.Itoa(task.Id),
+		Summary: task.Name,
+		Project: Project{
+			Key:          strconv.Itoa(task.ProjectId),
+			Name:         task.ProjectName,
+			TogglProject: task.ProjectId,
+		},
+		TogglTask: task.Id,
+	}
 }
 
 // RefreshCache rebuilds the local task cache from scratch.
@@ -113,14 +145,5 @@ func (t *TogglSource) GetTask(key string) (*Task, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Task{
-		Key:     strconv.Itoa(task.Id),
-		Summary: task.Name,
-		Project: Project{
-			Key:          strconv.Itoa(task.ProjectId),
-			Name:         task.ProjectName,
-			TogglProject: task.ProjectId,
-		},
-		TogglTask: task.Id,
-	}, nil
+	return togglTask(task), nil
 }

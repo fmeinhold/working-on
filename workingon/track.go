@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/fefeme/workingon/toggl"
 	"github.com/fefeme/workingon/util"
-	"github.com/spf13/cobra"
 	"strconv"
 	"time"
 )
@@ -108,82 +107,195 @@ func describeTask(task *Task) string {
 	return fmt.Sprintf("%s: %s", task.Key, task.Summary)
 }
 
-func NewTimeEntry(cfg *Config, project string, wid int, summaryOrKey string, templateArgs map[string]string) (*toggl.TimeEntry, error) {
-	var timeEntry *toggl.TimeEntry
+// TaskNamer is the optional ability of a source to resolve a task by name.
+// Toggl task ids are unmemorable, so a name is how you actually reach one.
+type TaskNamer interface {
+	// LookupTaskByName answers from local state only. It runs against every
+	// free text description, so it must never call out.
+	LookupTaskByName(name string, projectId int) *Task
 
-	// Is this as key for a task in a source?
-	task, err := Registry.GetTask(summaryOrKey)
+	// FindTaskByName may go to the source, for a task the user named
+	// explicitly and therefore expects to exist.
+	FindTaskByName(name string, projectId int) (*Task, error)
+}
 
-	if task != nil {
-		timeEntry = &toggl.TimeEntry{
-			Description: describeTask(task),
-			// A toggl-native task can be linked to directly. Sources that are
-			// not toggl leave this zero.
-			TaskId: task.TogglTask,
+// lookupTaskByName asks the sources that can, without calling out.
+func lookupTaskByName(name string, projectId int) *Task {
+	if name == "" {
+		return nil
+	}
+
+	for _, source := range Registry.RegisteredSources {
+		namer, ok := source.(TaskNamer)
+		if !ok {
+			continue
 		}
-	} else {
-		// Maybe it's an alias for a template
-		tpl, _ := Configuration.GetTemplate(summaryOrKey)
-		switch {
-		case tpl != nil:
-			// We need to overwrite the startime and stoptime from the commandline
-			// for example: wo add ds 21.01.2021 should work
-			timeEntry, err = tpl.CreateTimeEntryFromTemplate(templateArgs)
-			if err != nil {
-				return nil, err
-			}
-
-		case err != nil && !errors.Is(err, ErrNoSourceClaimsKey):
-			// A source recognised the key and could not resolve it. Quietly
-			// booking that as a description would hide a typo'd issue key, or
-			// an outage, behind an entry named after the key.
-			return nil, err
-
-		default:
-			// It is just a Summary / Description
-			timeEntry = &toggl.TimeEntry{
-				Description: summaryOrKey,
-			}
+		if task := namer.LookupTaskByName(name, projectId); task != nil {
+			return task
 		}
 	}
 
-	if project != "" {
-		// Overwrite Project pid with command line project parameter
-		pid, err := strconv.Atoi(project)
+	return nil
+}
+
+// findTaskByName resolves a task the user named explicitly, and says so when
+// it cannot.
+func findTaskByName(name string, projectId int) (*Task, error) {
+	var lastErr error
+
+	for _, source := range Registry.RegisteredSources {
+		namer, ok := source.(TaskNamer)
+		if !ok {
+			continue
+		}
+		task, err := namer.FindTaskByName(name, projectId)
 		if err != nil {
-			pm, err := cfg.GetMapping(project)
-			if err == nil {
-				pid = pm.TogglePid
-			}
+			lastErr = err
+			continue
 		}
-		timeEntry.ProjectId = pid
-	} else {
 		if task != nil {
-			pm, _ := Configuration.GetMapping(task.Project.Key)
-			if pm != nil {
-				if pm.TogglePid == 0 {
-					return nil, ErrorPidNotSetInMapping
-				}
-				timeEntry.ProjectId = pm.TogglePid
-			} else if task.Project.TogglProject != 0 {
-				// A toggl-native task already belongs to a toggl project, so
-				// there is nothing to map it through.
-				timeEntry.ProjectId = task.Project.TogglProject
-			}
+			return task, nil
 		}
 	}
-	// Nothing has named a project yet, so fall back: the repository we are
-	// standing in, then the configured default. Whether ending up with
-	// neither is fatal is up to toggl_pid_required.
-	if timeEntry.TaskId == 0 && timeEntry.ProjectId == 0 {
-		pid := FindProjectByGitRepositoryUrl(cfg)
-		if pid == 0 {
-			pid = cfg.Settings.ToggleDefaultPid
+
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, fmt.Errorf("%w: no task named %q", ErrTaskNotFound, name)
+}
+
+// applyTask attaches an explicitly requested task, or the one a mapping pins
+// to this repository.
+func applyTask(timeEntry *toggl.TimeEntry, taskRef string, mapping *ProjectMapping) error {
+	if taskRef != "" {
+		// A --task wins over anything inferred, and may be an id or a name.
+		if id, err := strconv.Atoi(taskRef); err == nil {
+			timeEntry.TaskId = id
+			return nil
 		}
-		if pid == 0 && cfg.Settings.TogglePidRequired {
-			return nil, ErrorPidRequired
+
+		task, err := findTaskByName(taskRef, timeEntry.ProjectId)
+		if err != nil {
+			return err
 		}
+		timeEntry.TaskId = task.TogglTask
+		if timeEntry.ProjectId == 0 {
+			timeEntry.ProjectId = task.Project.TogglProject
+		}
+		return nil
+	}
+
+	if timeEntry.TaskId == 0 && mapping != nil && mapping.TogglTask != 0 {
+		timeEntry.TaskId = mapping.TogglTask
+	}
+
+	return nil
+}
+
+// resolveProject works out which toggl project a new entry belongs to, and the
+// mapping it came from if there was one.
+//
+// Order: the --project flag, then the repository we are standing in, then the
+// configured default. It runs before the task is resolved, because a task name
+// is only unambiguous within a project.
+func resolveProject(cfg *Config, project string) (int, *ProjectMapping) {
+	if project != "" {
+		if pid, err := strconv.Atoi(project); err == nil {
+			return pid, nil
+		}
+		if mapping, err := cfg.GetMapping(project); err == nil {
+			return mapping.TogglePid, mapping
+		}
+		return 0, nil
+	}
+
+	if mapping := FindMappingByGitRepositoryUrl(cfg); mapping != nil {
+		return mapping.TogglePid, mapping
+	}
+
+	return cfg.Settings.ToggleDefaultPid, nil
+}
+
+// resolveEntry turns the summary argument into a time entry: a task key, a
+// template alias, a task name in this project, or plain description text.
+func resolveEntry(summaryOrKey string, pid int, templateArgs map[string]string) (*toggl.TimeEntry, error) {
+	task, err := Registry.GetTask(summaryOrKey)
+	if task != nil {
+		return entryForTask(task)
+	}
+
+	// Maybe it's an alias for a template
+	if tpl, _ := Configuration.GetTemplate(summaryOrKey); tpl != nil {
+		// We need to overwrite the startime and stoptime from the commandline
+		// for example: wo add ds 21.01.2021 should work
+		return tpl.CreateTimeEntryFromTemplate(templateArgs)
+	}
+
+	if err != nil && !errors.Is(err, ErrNoSourceClaimsKey) {
+		// A source recognised the key and could not resolve it. Quietly
+		// booking that as a description would hide a typo'd issue key, or
+		// an outage, behind an entry named after the key.
+		return nil, err
+	}
+
+	// The name of a task in this project is a reference to it, not a
+	// description that happens to read the same way.
+	if named := lookupTaskByName(summaryOrKey, pid); named != nil {
+		return entryForTask(named)
+	}
+
+	// It is just a Summary / Description
+	return &toggl.TimeEntry{Description: summaryOrKey}, nil
+}
+
+func entryForTask(task *Task) (*toggl.TimeEntry, error) {
+	timeEntry := &toggl.TimeEntry{
+		Description: describeTask(task),
+		// A toggl-native task can be linked to directly. Sources that are
+		// not toggl leave this zero.
+		TaskId: task.TogglTask,
+	}
+
+	pm, _ := Configuration.GetMapping(task.Project.Key)
+	switch {
+	case pm != nil:
+		if pm.TogglePid == 0 {
+			return nil, ErrorPidNotSetInMapping
+		}
+		timeEntry.ProjectId = pm.TogglePid
+	case task.Project.TogglProject != 0:
+		// A toggl-native task already belongs to a toggl project, so there is
+		// nothing to map it through.
+		timeEntry.ProjectId = task.Project.TogglProject
+	}
+
+	return timeEntry, nil
+}
+
+func NewTimeEntry(cfg *Config, project string, wid int, summaryOrKey string,
+	templateArgs map[string]string, taskRef string) (*toggl.TimeEntry, error) {
+
+	pid, mapping := resolveProject(cfg, project)
+
+	timeEntry, err := resolveEntry(summaryOrKey, pid, templateArgs)
+	if err != nil {
+		return nil, err
+	}
+
+	switch {
+	case project != "":
+		// An explicit --project wins over whatever the task belongs to.
 		timeEntry.ProjectId = pid
+	case timeEntry.ProjectId == 0:
+		timeEntry.ProjectId = pid
+	}
+
+	if err := applyTask(timeEntry, taskRef, mapping); err != nil {
+		return nil, err
+	}
+
+	if timeEntry.TaskId == 0 && timeEntry.ProjectId == 0 && cfg.Settings.TogglePidRequired {
+		return nil, ErrorPidRequired
 	}
 
 	timeEntry.WorkspaceId = wid
@@ -232,39 +344,45 @@ func setDuration(cfg *Config,
 
 }
 
-func AddOrStart(cmd *cobra.Command, cfg *Config,
-	wid int, project string, summaryOrKey string,
-	startTime time.Time, duration time.Duration,
-	templateArgs map[string]string, running bool) (*toggl.TimeEntry, error) {
+// EntryRequest is everything the commands can say about a new time entry.
+type EntryRequest struct {
+	Wid          int
+	Project      string
+	Task         string
+	SummaryOrKey string
+	Start        time.Time
+	Stop         string
+	Duration     time.Duration
+	TemplateArgs map[string]string
+	Running      bool
+	DryRun       bool
+}
 
-	timeEntry, err := NewTimeEntry(cfg, project, wid, summaryOrKey, templateArgs)
+func AddOrStart(cfg *Config, req EntryRequest) (*toggl.TimeEntry, error) {
+	timeEntry, err := NewTimeEntry(cfg, req.Project, req.Wid, req.SummaryOrKey,
+		req.TemplateArgs, req.Task)
 	if err != nil {
 		return nil, fmt.Errorf("timeEntry: %s", err)
 	}
 
 	var stopTime time.Time
-	s, err := cmd.Flags().GetString("stop")
-	if err == nil && s != "" {
-		stopTime, err = util.ParseTimeUTCE(s, cfg.Settings.DateLayout, cfg.Settings.DateTimeLayout, &cfg.Settings.Location)
+	if req.Stop != "" {
+		stopTime, err = util.ParseTimeUTCE(req.Stop, cfg.Settings.DateLayout,
+			cfg.Settings.DateTimeLayout, &cfg.Settings.Location)
 		if err != nil {
 			return nil, fmt.Errorf("unable to parse stop time: %s", err)
 		}
 	}
 
-	err = setDuration(cfg, timeEntry, startTime, stopTime, duration, running)
+	err = setDuration(cfg, timeEntry, req.Start, stopTime, req.Duration, req.Running)
 	if err != nil {
 		return nil, err
 	}
 
-	dryRun, _ := cmd.Flags().GetBool("dry")
-
-	if !dryRun {
-		cl := toggl.NewToggl(cfg.Settings.ToggleApiToken)
-		timeEntry, err = cl.TimeEntries.Add(timeEntry)
-		if err != nil {
-			return nil, err
-		}
+	if req.DryRun {
+		return timeEntry, nil
 	}
 
-	return timeEntry, nil
+	cl := toggl.NewToggl(cfg.Settings.ToggleApiToken)
+	return cl.TimeEntries.Add(timeEntry)
 }

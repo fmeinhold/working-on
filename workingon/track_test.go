@@ -18,9 +18,33 @@ import (
 type stubSource struct {
 	name    string
 	tasks   map[string]*Task
+	names   map[string]*Task
 	handles func(string) bool
 	err     error
 	calls   int
+	lookups int
+}
+
+// LookupTaskByName and FindTaskByName make the stub a TaskNamer, matching a
+// name within a project the way the toggl cache does.
+func (s *stubSource) LookupTaskByName(name string, projectId int) *Task {
+	s.lookups++
+
+	task, ok := s.names[strings.ToLower(name)]
+	if !ok {
+		return nil
+	}
+	if projectId != 0 && task.Project.TogglProject != projectId {
+		return nil
+	}
+	return task
+}
+
+func (s *stubSource) FindTaskByName(name string, projectId int) (*Task, error) {
+	if task := s.LookupTaskByName(name, projectId); task != nil {
+		return task, nil
+	}
+	return nil, fmt.Errorf("%w: no task named %q", ErrTaskNotFound, name)
 }
 
 func (s *stubSource) Configure(*Config) error         { return nil }
@@ -76,7 +100,7 @@ func TestNewTimeEntryLinksTogglTask(t *testing.T) {
 	cfg := Config{Settings: Settings{TogglePidRequired: true}}
 	withSources(t, cfg, &stubSource{name: "toggl", tasks: map[string]*Task{"30422198": togglTask}})
 
-	entry, err := NewTimeEntry(&cfg, "", 5, "30422198", nil)
+	entry, err := NewTimeEntry(&cfg, "", 5, "30422198", nil, "")
 	if err != nil {
 		t.Fatalf("NewTimeEntry: %v", err)
 	}
@@ -108,7 +132,7 @@ func TestNewTimeEntryMapsNonTogglTask(t *testing.T) {
 	}
 	withSources(t, cfg, &stubSource{name: "tracker", tasks: map[string]*Task{"MOET-297": trackerTask}})
 
-	entry, err := NewTimeEntry(&cfg, "", 5, "MOET-297", nil)
+	entry, err := NewTimeEntry(&cfg, "", 5, "MOET-297", nil, "")
 	if err != nil {
 		t.Fatalf("NewTimeEntry: %v", err)
 	}
@@ -136,7 +160,7 @@ func TestNewTimeEntryProjectFlagOverridesTask(t *testing.T) {
 	cfg := Config{Settings: Settings{TogglePidRequired: true}}
 	withSources(t, cfg, &stubSource{name: "toggl", tasks: map[string]*Task{"1": togglTask}})
 
-	entry, err := NewTimeEntry(&cfg, "999", 5, "1", nil)
+	entry, err := NewTimeEntry(&cfg, "999", 5, "1", nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +174,7 @@ func TestNewTimeEntryRequiresProjectForFreeText(t *testing.T) {
 	cfg := Config{Settings: Settings{TogglePidRequired: true}}
 	withSources(t, cfg, &stubSource{name: "toggl", handles: numericKey})
 
-	_, err := NewTimeEntry(&cfg, "", 5, "some free text", nil)
+	_, err := NewTimeEntry(&cfg, "", 5, "some free text", nil, "")
 	if err != ErrorPidRequired {
 		t.Fatalf("err = %v, want ErrorPidRequired", err)
 	}
@@ -182,7 +206,7 @@ func TestNewTimeEntryReportsAClaimedKeyThatFailedToResolve(t *testing.T) {
 			cfg := Config{Settings: Settings{TogglePidRequired: true}}
 			withSources(t, cfg, source)
 
-			entry, err := NewTimeEntry(&cfg, "91", 5, keys[name], nil)
+			entry, err := NewTimeEntry(&cfg, "91", 5, keys[name], nil, "")
 			if err == nil {
 				t.Fatalf("got entry %+v, want an error rather than a description", entry)
 			}
@@ -202,7 +226,7 @@ func TestNewTimeEntryPrefersATemplateOverAFailedLookup(t *testing.T) {
 	}
 	withSources(t, cfg, &stubSource{name: "toggl", handles: numericKey, tasks: map[string]*Task{}})
 
-	entry, err := NewTimeEntry(&cfg, "91", 5, "40819208", nil)
+	entry, err := NewTimeEntry(&cfg, "91", 5, "40819208", nil, "")
 	if err != nil {
 		t.Fatalf("NewTimeEntry: %v", err)
 	}
@@ -217,7 +241,7 @@ func TestNewTimeEntryFallsBackToTheDefaultProject(t *testing.T) {
 	cfg := Config{Settings: Settings{TogglePidRequired: true, ToggleDefaultPid: 91210706}}
 	withSources(t, cfg, &stubSource{name: "toggl", handles: numericKey})
 
-	entry, err := NewTimeEntry(&cfg, "", 5, "some free text", nil)
+	entry, err := NewTimeEntry(&cfg, "", 5, "some free text", nil, "")
 	if err != nil {
 		t.Fatalf("NewTimeEntry: %v", err)
 	}
@@ -239,7 +263,7 @@ func TestNewTimeEntryPrefersASpecificProjectOverTheDefault(t *testing.T) {
 	withSources(t, cfg, &stubSource{name: "toggl", tasks: map[string]*Task{"1": togglTask}})
 
 	t.Run("the --project flag", func(t *testing.T) {
-		entry, err := NewTimeEntry(&cfg, "999", 5, "some free text", nil)
+		entry, err := NewTimeEntry(&cfg, "999", 5, "some free text", nil, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -249,7 +273,7 @@ func TestNewTimeEntryPrefersASpecificProjectOverTheDefault(t *testing.T) {
 	})
 
 	t.Run("the task's own project", func(t *testing.T) {
-		entry, err := NewTimeEntry(&cfg, "", 5, "1", nil)
+		entry, err := NewTimeEntry(&cfg, "", 5, "1", nil, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -265,7 +289,7 @@ func TestNewTimeEntryWithoutADefaultStillRequiresAProject(t *testing.T) {
 	cfg := Config{Settings: Settings{TogglePidRequired: true}}
 	withSources(t, cfg, &stubSource{name: "toggl", handles: numericKey})
 
-	if _, err := NewTimeEntry(&cfg, "", 5, "some free text", nil); err != ErrorPidRequired {
+	if _, err := NewTimeEntry(&cfg, "", 5, "some free text", nil, ""); err != ErrorPidRequired {
 		t.Fatalf("err = %v, want ErrorPidRequired", err)
 	}
 }
@@ -275,7 +299,7 @@ func TestNewTimeEntryAllowsNoProjectWhenNotRequired(t *testing.T) {
 	cfg := Config{Settings: Settings{TogglePidRequired: false}}
 	withSources(t, cfg, &stubSource{name: "toggl", handles: numericKey})
 
-	entry, err := NewTimeEntry(&cfg, "", 5, "some free text", nil)
+	entry, err := NewTimeEntry(&cfg, "", 5, "some free text", nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +312,7 @@ func TestNewTimeEntrySetsWorkspaceAndCreatedWith(t *testing.T) {
 	cfg := Config{}
 	withSources(t, cfg, &stubSource{name: "toggl", handles: numericKey})
 
-	entry, err := NewTimeEntry(&cfg, "91", 1562374, "writing tests", nil)
+	entry, err := NewTimeEntry(&cfg, "91", 1562374, "writing tests", nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,6 +321,198 @@ func TestNewTimeEntrySetsWorkspaceAndCreatedWith(t *testing.T) {
 	}
 	if entry.CreatedWith != toggl.CreatedWith {
 		t.Errorf("created_with = %q, want %q", entry.CreatedWith, toggl.CreatedWith)
+	}
+}
+
+// atdConference is a task in project 91210706, the shape this repository's
+// mapping resolves to.
+func atdConference() *Task {
+	return &Task{
+		Key:       "241929955",
+		Summary:   "ATD Conference",
+		TogglTask: 241929955,
+		Project:   Project{Key: "91210706", TogglProject: 91210706},
+	}
+}
+
+func namingSource() *stubSource {
+	return &stubSource{
+		name:    "toggl",
+		handles: numericKey,
+		names:   map[string]*Task{"atd conference": atdConference()},
+	}
+}
+
+// The name of a task in this project is a reference to it, not a description
+// that happens to read the same way.
+func TestNewTimeEntryResolvesATaskByName(t *testing.T) {
+	cfg := Config{Settings: Settings{TogglePidRequired: true, ToggleDefaultPid: 91210706}}
+	withSources(t, cfg, namingSource())
+
+	entry, err := NewTimeEntry(&cfg, "", 5, "ATD Conference", nil, "")
+	if err != nil {
+		t.Fatalf("NewTimeEntry: %v", err)
+	}
+
+	if entry.TaskId != 241929955 {
+		t.Errorf("task_id = %d, want 241929955", entry.TaskId)
+	}
+	if entry.ProjectId != 91210706 {
+		t.Errorf("project_id = %d, want 91210706", entry.ProjectId)
+	}
+	if entry.Description != "ATD Conference" {
+		t.Errorf("description = %q, want the task name", entry.Description)
+	}
+}
+
+func TestNewTimeEntryMatchesATaskNameCaseInsensitively(t *testing.T) {
+	cfg := Config{Settings: Settings{ToggleDefaultPid: 91210706}}
+	withSources(t, cfg, namingSource())
+
+	entry, err := NewTimeEntry(&cfg, "", 5, "atd conference", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry.TaskId != 241929955 {
+		t.Errorf("task_id = %d, want the task matched regardless of case", entry.TaskId)
+	}
+}
+
+// Text that is not a task name stays a description.
+func TestNewTimeEntryLeavesUnmatchedTextAsDescription(t *testing.T) {
+	cfg := Config{Settings: Settings{ToggleDefaultPid: 91210706}}
+	withSources(t, cfg, namingSource())
+
+	entry, err := NewTimeEntry(&cfg, "", 5, "fixing the parser", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry.TaskId != 0 {
+		t.Errorf("task_id = %d, want none for free text", entry.TaskId)
+	}
+	if entry.Description != "fixing the parser" {
+		t.Errorf("description = %q, want it left alone", entry.Description)
+	}
+}
+
+// A name is only unambiguous inside a project, so the lookup is scoped to the
+// one already resolved.
+func TestNewTimeEntryScopesTaskNamesToTheProject(t *testing.T) {
+	cfg := Config{Settings: Settings{ToggleDefaultPid: 164014679}}
+	withSources(t, cfg, namingSource())
+
+	entry, err := NewTimeEntry(&cfg, "", 5, "ATD Conference", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry.TaskId != 0 {
+		t.Errorf("task_id = %d, want none: the task is in another project", entry.TaskId)
+	}
+	if entry.Description != "ATD Conference" {
+		t.Errorf("description = %q, want it treated as text", entry.Description)
+	}
+}
+
+// --task takes an id.
+func TestNewTimeEntryTaskFlagById(t *testing.T) {
+	cfg := Config{Settings: Settings{ToggleDefaultPid: 91210706}}
+	withSources(t, cfg, namingSource())
+
+	entry, err := NewTimeEntry(&cfg, "", 5, "some work", nil, "241929955")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry.TaskId != 241929955 {
+		t.Errorf("task_id = %d, want 241929955", entry.TaskId)
+	}
+	if entry.Description != "some work" {
+		t.Errorf("description = %q, want the description left alone", entry.Description)
+	}
+}
+
+// --task also takes a name.
+func TestNewTimeEntryTaskFlagByName(t *testing.T) {
+	cfg := Config{Settings: Settings{ToggleDefaultPid: 91210706}}
+	withSources(t, cfg, namingSource())
+
+	entry, err := NewTimeEntry(&cfg, "", 5, "some work", nil, "ATD Conference")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry.TaskId != 241929955 {
+		t.Errorf("task_id = %d, want the named task", entry.TaskId)
+	}
+}
+
+// A --task that resolves to nothing is an error, not a silent omission.
+func TestNewTimeEntryTaskFlagReportsAnUnknownName(t *testing.T) {
+	cfg := Config{Settings: Settings{ToggleDefaultPid: 91210706}}
+	withSources(t, cfg, namingSource())
+
+	_, err := NewTimeEntry(&cfg, "", 5, "some work", nil, "No Such Task")
+	if err == nil {
+		t.Fatal("expected an error for a task name that does not exist")
+	}
+	if !strings.Contains(err.Error(), "No Such Task") {
+		t.Errorf("error = %q, want it to name the task", err)
+	}
+}
+
+// A mapping may pin a task, so work in that repository lands on it without
+// anything extra on the command line.
+func TestNewTimeEntryUsesTheMappingsTask(t *testing.T) {
+	cfg := Config{
+		Settings: Settings{TogglePidRequired: true},
+		Projects: []ProjectMapping{{Name: "SW", TogglePid: 91210706, TogglTask: 241929955}},
+	}
+	withSources(t, cfg, namingSource())
+
+	entry, err := NewTimeEntry(&cfg, "SW", 5, "fixing the parser", nil, "")
+	if err != nil {
+		t.Fatalf("NewTimeEntry: %v", err)
+	}
+
+	if entry.ProjectId != 91210706 {
+		t.Errorf("project_id = %d, want the mapping's", entry.ProjectId)
+	}
+	if entry.TaskId != 241929955 {
+		t.Errorf("task_id = %d, want the mapping's task", entry.TaskId)
+	}
+}
+
+// An explicit --task beats the one the mapping pins.
+func TestNewTimeEntryTaskFlagOverridesTheMapping(t *testing.T) {
+	cfg := Config{
+		Settings: Settings{TogglePidRequired: true},
+		Projects: []ProjectMapping{{Name: "SW", TogglePid: 91210706, TogglTask: 241929955}},
+	}
+	withSources(t, cfg, namingSource())
+
+	entry, err := NewTimeEntry(&cfg, "SW", 5, "fixing the parser", nil, "77918943")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry.TaskId != 77918943 {
+		t.Errorf("task_id = %d, want the flag's 77918943", entry.TaskId)
+	}
+}
+
+// A task resolved from the summary keeps its own task, not the mapping's.
+func TestNewTimeEntryResolvedTaskBeatsTheMapping(t *testing.T) {
+	cfg := Config{
+		Settings: Settings{TogglePidRequired: true},
+		Projects: []ProjectMapping{{Name: "SW", TogglePid: 91210706, TogglTask: 77918943}},
+	}
+	source := namingSource()
+	source.tasks = map[string]*Task{"241929955": atdConference()}
+	withSources(t, cfg, source)
+
+	entry, err := NewTimeEntry(&cfg, "SW", 5, "241929955", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry.TaskId != 241929955 {
+		t.Errorf("task_id = %d, want the resolved task", entry.TaskId)
 	}
 }
 

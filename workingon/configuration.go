@@ -43,6 +43,7 @@ type TemplateConfig struct {
 type ProjectMapping struct {
 	Name      string `yaml:"name" mapstructure:"name"`
 	TogglePid int    `yaml:"toggl_pid"  mapstructure:"toggl_pid"`
+	TogglTask int    `yaml:"toggl_task" mapstructure:"toggl_task"`
 	Git       string `yaml:"git" mapstructure:"git"`
 }
 

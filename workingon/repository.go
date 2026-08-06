@@ -4,18 +4,28 @@ import (
 	"github.com/tcnksm/go-gitconfig"
 )
 
-func FindProjectByGitRepositoryUrl(cfg *Config) int {
-	// Check, if this is a git repository
+// FindMappingByGitRepositoryUrl returns the mapping whose git remote matches
+// the repository we are standing in, or nil when there is no match.
+func FindMappingByGitRepositoryUrl(cfg *Config) *ProjectMapping {
 	url, _ := gitconfig.OriginURL()
 	if url == "" {
-		return 0
+		return nil
 	}
 
-	for _, project := range cfg.Projects {
-		if project.Git == url {
-			return project.TogglePid
+	for i := range cfg.Projects {
+		if cfg.Projects[i].Git == url {
+			return &cfg.Projects[i]
 		}
 	}
 
+	return nil
+}
+
+// FindProjectByGitRepositoryUrl returns just the toggl project id for the
+// repository we are standing in, or zero.
+func FindProjectByGitRepositoryUrl(cfg *Config) int {
+	if mapping := FindMappingByGitRepositoryUrl(cfg); mapping != nil {
+		return mapping.TogglePid
+	}
 	return 0
 }

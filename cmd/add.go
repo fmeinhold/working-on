@@ -79,8 +79,27 @@ or by description/key, start time and duration`,
 					}
 				}
 
-				timeEntry, err := workingon.AddOrStart(cmd, cfg, wid, project, strings.Join(tail, " "), start,
-					duration, templateArgs, false)
+				task, err := cmd.Flags().GetString("task")
+				if err != nil {
+					return err
+				}
+
+				stop, err := cmd.Flags().GetString("stop")
+				if err != nil {
+					return err
+				}
+
+				timeEntry, err := workingon.AddOrStart(cfg, workingon.EntryRequest{
+					Wid:          wid,
+					Project:      project,
+					Task:         task,
+					SummaryOrKey: strings.Join(tail, " "),
+					Start:        start,
+					Stop:         stop,
+					Duration:     duration,
+					TemplateArgs: templateArgs,
+					DryRun:       dryRun,
+				})
 				if err != nil {
 					return err
 				}
@@ -94,6 +113,7 @@ or by description/key, start time and duration`,
 	// Flags
 	addCommand.Flags().StringP("stop", "s", "", "Stop Time")
 	addCommand.Flags().StringP("project", "p", viper.GetString("TOGGL_PROJECT"), "Set project")
+	addCommand.Flags().String("task", "", "Set the toggl task, by id or by name")
 	addCommand.Flags().BoolVarP(&dryRun, "dry", "d", false, "Do not create anything in toggl")
 	addCommand.Flags().BoolP("append", "a", false, "Append to last time entry")
 	addCommand.Flags().BoolP("fuzzy", "f", false, "Add some fuzziness to the start and stop time")

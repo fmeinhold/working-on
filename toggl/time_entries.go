@@ -8,6 +8,7 @@ import (
 	"math"
 	"math/rand"
 	"net/url"
+	"strconv"
 	"time"
 )
 
@@ -36,11 +37,20 @@ func (t *TimeEntry) Format(dfLayout string, loc *time.Location) string {
 
 	d := t.Duration
 	if d < 0 {
-		return fmt.Sprintf("%s (%d) at %s (running)", t.Description, t.ProjectId, start)
+		return fmt.Sprintf("%s (%s) at %s (running)", t.Description, t.where(), start)
 	}
 
-	return fmt.Sprintf("\"%s\" %s for %s (%d)", t.Description, start,
-		time.Duration(d)*time.Second, t.ProjectId)
+	return fmt.Sprintf("\"%s\" %s for %s (%s)", t.Description, start,
+		time.Duration(d)*time.Second, t.where())
+}
+
+// where names the project the entry is filed under, and the task within it if
+// there is one - otherwise there is no way to tell whether a task was attached.
+func (t *TimeEntry) where() string {
+	if t.TaskId != 0 {
+		return fmt.Sprintf("%d/%d", t.ProjectId, t.TaskId)
+	}
+	return strconv.Itoa(t.ProjectId)
 }
 
 // IsRunning reports whether the entry is an open timer.

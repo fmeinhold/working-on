@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/fefeme/workingon/toggl"
@@ -99,6 +100,68 @@ func (c *TaskCache) Find(id int) (*toggl.Task, error) {
 	}
 
 	return nil, fmt.Errorf("%w: task %d in workspace %d", ErrTaskNotFound, id, c.workspaceId)
+}
+
+// LookupByName resolves a task by exact, case insensitive name within a
+// project, from local state only.
+//
+// It never calls out, because it runs speculatively against every free text
+// description: paying a request to discover that "fixing the parser" is not a
+// task name would undo the point of the cache.
+func (c *TaskCache) LookupByName(name string, projectId int) *toggl.Task {
+	c.load()
+	return c.matchName(name, projectId)
+}
+
+// FindByName is LookupByName for a task the user asked for by name, so a miss
+// is worth a refresh before giving up.
+func (c *TaskCache) FindByName(name string, projectId int) (*toggl.Task, error) {
+	if task := c.LookupByName(name, projectId); task != nil {
+		return task, nil
+	}
+
+	if err := c.sync(); err != nil {
+		return nil, err
+	}
+
+	if task := c.matchName(name, projectId); task != nil {
+		return task, nil
+	}
+
+	if projectId == 0 {
+		return nil, fmt.Errorf("%w: no task named %q", ErrTaskNotFound, name)
+	}
+	return nil, fmt.Errorf("%w: no task named %q in project %d", ErrTaskNotFound, name, projectId)
+}
+
+// matchName finds a task by name among what is cached. A project id of zero
+// searches the whole workspace, where a name is far more likely to be
+// ambiguous, so only an unambiguous match counts.
+func (c *TaskCache) matchName(name string, projectId int) *toggl.Task {
+	if name == "" {
+		return nil
+	}
+
+	var found *toggl.Task
+
+	for i := range c.data.Tasks {
+		task := &c.data.Tasks[i]
+
+		if projectId != 0 && task.ProjectId != projectId {
+			continue
+		}
+		if !strings.EqualFold(task.Name, name) {
+			continue
+		}
+
+		if found != nil && found.Id != task.Id {
+			// Two tasks share this name; the caller has to be more specific.
+			return nil
+		}
+		found = task
+	}
+
+	return found
 }
 
 // Refresh discards what is cached and rebuilds it from scratch.
