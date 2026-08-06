@@ -1,0 +1,99 @@
+# Working On - example configuration
+#
+# Copy this to ~/.config/working_on/config.yaml and fill it in, or run
+# `wo init` to be asked for the same things and have it written for you.
+#
+# Per repository overrides go in a .workingon.yaml beside your checkout; see
+# the end of this file.
+
+settings:
+  # Day first dates, as in 6.8.2026.
+  day_first: true
+
+  # An IANA timezone name. Times you type are read in this zone, stored in UTC,
+  # and displayed back in this zone.
+  location: Europe/Berlin
+
+  # Go reference layouts - https://pkg.go.dev/time#pkg-constants
+  # The layout also decides how partial dates are read: with "2.1.2006",
+  # "6.8" is the 6th of August and "6" is the 6th of this month.
+  date_layout: "2.1.2006"
+  date_time_layout: "2.1.2006 15:04"
+
+  # From https://track.toggl.com/profile
+  toggl_api_token: <your toggl api token>
+
+  # The workspace new entries are created in. `wo init` picks this for you.
+  toggl_wid: 0
+
+  # A time entry's project is resolved in this order:
+  #   1. the --project flag
+  #   2. the project the task belongs to
+  #   3. a mapping below matching this repository's git remote
+  #   4. toggl_default_pid
+  # If none of those produce one, toggl_pid_required decides whether that is
+  # an error or an entry with no project.
+  #
+  # Its task, in this order:
+  #   1. the --task flag, by id or by name
+  #   2. a task named as the summary  (wo add "ATD Conference" 2h)
+  #   3. a task referenced by id      (wo add 241929955 2h)
+  #   4. the toggl_task of the mapping this repository matches
+  # Task names are matched exactly, case insensitively, and only within the
+  # project already resolved - so a description is never mistaken for a task.
+  toggl_pid_required: true
+  toggl_default_pid: 0
+
+
+# Mapping a project name or a git repository to a toggl project, and
+# optionally to a task within it.
+#
+# The git entry is matched against `git config --get remote.origin.url`, so
+# work done inside that checkout is filed automatically. The name is what you
+# pass to --project.
+mappings:
+  - name: "EXAMPLE"
+    toggl_pid: 12345678
+    toggl_task: 87654321 # optional
+    git: git@github.com:you/example.git
+
+
+# Time entry templates, addressed by their alias: `wo add ds` books the daily
+# standup. Descriptions are Go templates, filled from --templateArgs:
+#
+#   wo add call -t caller=Sam
+#
+# see https://pkg.go.dev/text/template
+templates:
+  - alias: "ds"
+    description: "Daily Standup"
+    toggl_task: 87654321
+    start: "17:30"
+    stop: "17:45"
+
+  - alias: "call"
+    description: "Call with {{.caller}}"
+
+
+# Configuration for task sources other than toggl. Toggl is built in and takes
+# its credentials from settings above, so this is empty until another source
+# exists.
+sources: {}
+
+
+# Per repository overrides
+# ------------------------
+# A .workingon.yaml in a checkout is merged over this file, so it only needs
+# the keys it changes:
+#
+#   settings:
+#     toggl_wid: 1234567
+#   mappings:
+#     - name: "THIS-REPO"
+#       toggl_pid: 987654
+#       toggl_task: 123456
+#
+# It is looked for from the working directory upwards, stopping at the
+# repository root. Credentials are ignored there: a checked in overlay cannot
+# change which account you authenticate as. Note that a list replaces the one
+# it overrides rather than adding to it.
