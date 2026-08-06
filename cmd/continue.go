@@ -36,7 +36,18 @@ Shorthand for "wo start --continue".`,
 				}
 			}
 
-			timeEntry, err := workingon.ContinueLast(cfg, start, dry)
+			pickTask, err := cmd.Flags().GetBool("pick-task")
+			if err != nil {
+				return err
+			}
+
+			timeEntry, err := workingon.ContinueLast(cfg, workingon.EntryRequest{
+				Start:      start,
+				DryRun:     dry,
+				Describe:   describer(cfg),
+				ChooseTask: taskChooser(interactive()),
+				PickTask:   pickTask,
+			})
 			if err != nil {
 				return err
 			}
@@ -51,6 +62,8 @@ Shorthand for "wo start --continue".`,
 	command.Flags().BoolVarP(&dry, "dry", "d", false, "Do not create anything in toggl")
 	command.Flags().BoolVarP(&appendTo, "append", "a", false,
 		"Start where the last entry stopped instead of now")
+	command.Flags().Bool("pick-task", false,
+		"Choose the task rather than carrying over the one the last entry had")
 
 	return command
 }

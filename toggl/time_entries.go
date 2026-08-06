@@ -123,6 +123,39 @@ func (t *TimeEntries) Add(timeEntry *TimeEntry) (*TimeEntry, error) {
 	return &res, nil
 }
 
+// Update saves changes to an existing time entry.
+//
+// v9 takes the whole entry rather than the changed fields, so pass one that was
+// read back from the api. A running entry keeps running: its duration is still
+// negative and it still has no stop.
+func (t *TimeEntries) Update(timeEntry *TimeEntry) (*TimeEntry, error) {
+	if timeEntry.WorkspaceId == 0 {
+		return nil, errors.New("workspace id is required to update a time entry")
+	}
+	if timeEntry.Id == 0 {
+		return nil, errors.New("a time entry can only be updated once it has an id")
+	}
+
+	message, err := t.client.NewMessage("PUT",
+		fmt.Sprintf("workspaces/%d/%s/%d", timeEntry.WorkspaceId, Endpoint, timeEntry.Id),
+		timeEntry)
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := t.client.SendRequest(message)
+	if err != nil {
+		return nil, err
+	}
+
+	var res TimeEntry
+	if err := json.Unmarshal(*data, &res); err != nil {
+		return nil, err
+	}
+
+	return &res, nil
+}
+
 func (t *TimeEntries) List(start *time.Time, end *time.Time) (*TimeEntryList, error) {
 	base, err := url.Parse(fmt.Sprintf("me/%s", Endpoint))
 	if err != nil {

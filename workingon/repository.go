@@ -20,12 +20,3 @@ func FindMappingByGitRepositoryUrl(cfg *Config) *ProjectMapping {
 
 	return nil
 }
-
-// FindProjectByGitRepositoryUrl returns just the toggl project id for the
-// repository we are standing in, or zero.
-func FindProjectByGitRepositoryUrl(cfg *Config) int {
-	if mapping := FindMappingByGitRepositoryUrl(cfg); mapping != nil {
-		return mapping.TogglePid
-	}
-	return 0
-}

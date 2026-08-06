@@ -28,7 +28,18 @@ type Settings struct {
 	ToggleApiToken    string        `mapstructure:"toggl_api_token" yaml:"toggle_api_token"`
 	ToggleWid         int           `mapstructure:"toggl_wid" yaml:"toggl_wid"`
 	TogglePidRequired bool          `mapstructure:"toggl_pid_required" yaml:"toggl_pid_required"`
-	ToggleDefaultPid  int           `mapstructure:"toggl_default_pid" yaml:"toggl_default_pid"`
+
+	// ToggleTaskRequired is the workspace rule that every entry names a task.
+	// Where it holds, `wo` asks which one rather than creating an entry the
+	// workspace will not accept.
+	ToggleTaskRequired bool `mapstructure:"toggl_task_required" yaml:"toggl_task_required"`
+
+	ToggleDefaultPid  int `mapstructure:"toggl_default_pid" yaml:"toggl_default_pid"`
+	ToggleDefaultTask int `mapstructure:"toggl_default_task" yaml:"toggl_default_task"`
+
+	// ToggleDefaultDescription names an entry that would otherwise have no
+	// description. Left empty, `wo` asks for one instead.
+	ToggleDefaultDescription string `mapstructure:"toggl_default_description" yaml:"toggl_default_description"`
 }
 
 type TemplateConfig struct {
@@ -146,7 +157,28 @@ func InitConfig() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// An unset location decodes to the zero time.Location, which Go treats as
+	// UTC. For a tool that reads times you type and shows them back, silently
+	// answering in UTC is worse than guessing: the machine's own zone is what
+	// someone who never configured one means.
+	if Configuration.Settings.Location.String() == "" {
+		Configuration.Settings.Location = localLocation()
+	}
+
 	return &Configuration, nil
+}
+
+// localLocation is the machine's own zone, by value.
+//
+// time.Local is initialised lazily on first use, and the copy has to be taken
+// after that: dereferencing it too early yields a zero Location, which is
+// indistinguishable from the unset one this replaces. Calling String forces
+// the initialisation.
+func localLocation() time.Location {
+	local := time.Local
+	_ = local.String()
+	return *local
 }
 
 // FindLocalConfig looks for a repository local overlay, starting at the

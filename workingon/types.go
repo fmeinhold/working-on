@@ -8,6 +8,7 @@ package workingon
 type Project struct {
 	Key          string
 	Name         string
+	Archived     bool
 	TogglProject int
 }
 

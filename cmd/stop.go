@@ -13,6 +13,12 @@ func NewStopCommand(cfg *workingon.Config) *cobra.Command {
 		Short: "Stop currently running timer",
 		Long:  `Stop currently running timer`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Stopping saves the entry, which toggl can refuse while it has no
+			// description.
+			if _, err := workingon.NameRunningEntry(cfg, describer(cfg)); err != nil {
+				return err
+			}
+
 			cl := toggl.NewToggl(cfg.Settings.ToggleApiToken)
 
 			timeEntry, err := cl.TimeEntries.StopCurrent()

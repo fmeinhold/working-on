@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"net/http"
@@ -14,10 +15,11 @@ import (
 	"github.com/fefeme/workingon/workingon"
 )
 
-// togglStub answers the two calls init makes: workspaces, then projects.
+// togglStub answers the calls init makes: workspaces, projects and tasks.
 type togglStub struct {
 	workspaces string
 	projects   string
+	tasks      string
 	fail       bool
 }
 
@@ -33,6 +35,10 @@ func (s togglStub) session(t *testing.T, answers string, path string) (initSessi
 
 		if strings.Contains(r.URL.Path, "projects") {
 			fmt.Fprint(w, s.projects)
+			return
+		}
+		if strings.Contains(r.URL.Path, "tasks") {
+			fmt.Fprint(w, s.tasks)
 			return
 		}
 		fmt.Fprint(w, s.workspaces)
@@ -53,6 +59,10 @@ func oneWorkspace() togglStub {
 	return togglStub{
 		workspaces: `[{"id":1562374,"name":"Sealworks","organization_id":9}]`,
 		projects:   `[{"id":91210706,"name":"SW BIZ DEV","workspace_id":1562374,"active":true}]`,
+		tasks: `[{"id":241929955,"name":"Development","project_id":91210706,` +
+			`"workspace_id":1562374,"active":true},` +
+			`{"id":77918943,"name":"Elsewhere","project_id":1,` +
+			`"workspace_id":1562374,"active":true}]`,
 	}
 }
 
@@ -142,8 +152,9 @@ func TestInitAnswersOverrideTheDefaults(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
 
-	// timezone, date, datetime, pid required, pick a default, which one
-	answers := "token\nUTC\n2006-01-02\n2006-01-02 15:04\nn\ny\n1\n"
+	// timezone, date, datetime, pid required, task required, pick a default,
+	// which one
+	answers := "token\nUTC\n2006-01-02\n2006-01-02 15:04\nn\ny\ny\n1\n"
 
 	session, _ := oneWorkspace().session(t, answers, path)
 
@@ -160,6 +171,9 @@ func TestInitAnswersOverrideTheDefaults(t *testing.T) {
 		}
 		if cfg.Settings.TogglePidRequired {
 			t.Error("toggl_pid_required = true, want the answered false")
+		}
+		if !cfg.Settings.ToggleTaskRequired {
+			t.Error("toggl_task_required = false, want the answered true")
 		}
 		if cfg.Settings.ToggleDefaultPid != 91210706 {
 			t.Errorf("toggl_default_pid = %d, want the chosen project", cfg.Settings.ToggleDefaultPid)
@@ -366,6 +380,258 @@ func TestInitSurvivesAProjectListingFailure(t *testing.T) {
 	})
 }
 
+// configured is a loaded global config, which is what sends `wo init` looking
+// at the repository instead of the account.
+func configured() *workingon.Config {
+	cfg := &workingon.Config{}
+	cfg.Settings.ToggleApiToken = "already-set-up"
+	cfg.Settings.ToggleWid = 1562374
+	return cfg
+}
+
+// With a global config in place, init sets up the directory instead - and what
+// it writes has to survive the real overlay merge.
+func TestInitWritesALocalConfigWhenAlreadySetUp(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, workingon.LocalConfigName)
+
+	// project 1, then task 1
+	session, out := oneWorkspace().session(t, "1\n1\n", path)
+	session.cfg = configured()
+
+	if err := runInit(session); err != nil {
+		t.Fatalf("runInit: %v", err)
+	}
+
+	written, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("no overlay written: %v", err)
+	}
+
+	if strings.Contains(string(written), "toggl_api_token") {
+		t.Errorf("the overlay carries credentials:\n%s", written)
+	}
+	if strings.Contains(out.String(), "Api token") {
+		t.Error("asked for a token that the global config already has")
+	}
+
+	// Only the task of the chosen project is on offer.
+	if strings.Contains(out.String(), "Elsewhere") {
+		t.Errorf("offered a task from another project:\n%s", out)
+	}
+
+	loadWithLocalConfig(t, dir, func(cfg *workingon.Config) {
+		if cfg.Settings.ToggleDefaultPid != 91210706 {
+			t.Errorf("toggl_default_pid = %d, want the chosen project", cfg.Settings.ToggleDefaultPid)
+		}
+		if cfg.Settings.ToggleDefaultTask != 241929955 {
+			t.Errorf("toggl_default_task = %d, want the chosen task", cfg.Settings.ToggleDefaultTask)
+		}
+		// The overlay changes only what it names.
+		if cfg.Settings.ToggleApiToken != "global-token" {
+			t.Errorf("token = %q, want the global one", cfg.Settings.ToggleApiToken)
+		}
+	})
+}
+
+// loadWithLocalConfig runs the real loader from a directory holding an overlay,
+// with a minimal global config in place.
+func loadWithLocalConfig(t *testing.T, dir string, check func(*workingon.Config)) {
+	t.Helper()
+
+	home := t.TempDir()
+	configDir := filepath.Join(home, ".config", "working_on")
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	global := "settings:\n  toggl_api_token: global-token\n  toggl_wid: 1562374\n"
+	if err := os.WriteFile(filepath.Join(configDir, "config.yaml"), []byte(global), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("HOME", home)
+
+	previous, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(previous) })
+
+	cfg, err := workingon.InitConfig()
+	if err != nil {
+		t.Fatalf("the generated overlay does not load: %v", err)
+	}
+
+	check(cfg)
+}
+
+// A project with no task chosen is a complete answer.
+func TestInitLocalLeavesTheTaskOut(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, workingon.LocalConfigName)
+
+	// project 1, no task
+	session, _ := oneWorkspace().session(t, "1\n\n", path)
+	session.cfg = configured()
+
+	if err := runInit(session); err != nil {
+		t.Fatalf("runInit: %v", err)
+	}
+
+	written, _ := os.ReadFile(path)
+	if strings.Contains(string(written), "toggl_default_task") {
+		t.Errorf("wrote a task that was not chosen:\n%s", written)
+	}
+
+	loadWithLocalConfig(t, dir, func(cfg *workingon.Config) {
+		if cfg.Settings.ToggleDefaultPid != 91210706 {
+			t.Errorf("toggl_default_pid = %d", cfg.Settings.ToggleDefaultPid)
+		}
+		if cfg.Settings.ToggleDefaultTask != 0 {
+			t.Errorf("toggl_default_task = %d, want none", cfg.Settings.ToggleDefaultTask)
+		}
+	})
+}
+
+// The overlay is likely to be committed, so it must not be written private the
+// way the credential holding global config is.
+func TestInitLocalWritesAReadableFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, workingon.LocalConfigName)
+
+	session, _ := oneWorkspace().session(t, "1\n\n", path)
+	session.cfg = configured()
+
+	if err := runInit(session); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode := info.Mode().Perm(); mode != 0o644 {
+		t.Errorf("overlay mode = %o, want 644", mode)
+	}
+}
+
+func TestInitLocalRefusesToClobber(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, workingon.LocalConfigName)
+
+	if err := os.WriteFile(path, []byte("settings:\n  toggl_default_pid: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	session, _ := oneWorkspace().session(t, "1\n1\n", path)
+	session.cfg = configured()
+
+	err := runInit(session)
+	if err == nil {
+		t.Fatal("expected an error rather than overwriting an existing overlay")
+	}
+	if !strings.Contains(err.Error(), "--force") {
+		t.Errorf("error = %q, want it to mention --force", err)
+	}
+}
+
+// --global reaches the account setup even once it has been done.
+func TestInitGlobalFlagOverridesTheGuess(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	session, out := oneWorkspace().session(t, "a-new-token\n\n\n\n\n\n", path)
+	session.cfg = configured()
+	session.global = true
+
+	if err := runInit(session); err != nil {
+		t.Fatalf("runInit: %v", err)
+	}
+
+	if !strings.Contains(out.String(), "Api token") {
+		t.Errorf("ran the local flow despite --global:\n%s", out)
+	}
+
+	written, _ := os.ReadFile(path)
+	if !strings.Contains(string(written), "a-new-token") {
+		t.Errorf("did not write the global config:\n%s", written)
+	}
+}
+
+// --local without a global config to build on says so, rather than writing an
+// overlay over nothing.
+func TestInitLocalNeedsAGlobalConfig(t *testing.T) {
+	dir := t.TempDir()
+
+	session, _ := oneWorkspace().session(t, "1\n1\n", filepath.Join(dir, workingon.LocalConfigName))
+	session.local = true
+
+	err := runInit(session)
+	if err == nil {
+		t.Fatal("expected an error when there is no global config")
+	}
+	if !strings.Contains(err.Error(), "--global") {
+		t.Errorf("error = %q, want it to point at `wo init --global`", err)
+	}
+}
+
+func TestInitRejectsBothTargets(t *testing.T) {
+	session, _ := oneWorkspace().session(t, "", filepath.Join(t.TempDir(), "config.yaml"))
+	session.global = true
+	session.local = true
+
+	if err := runInit(session); err == nil {
+		t.Fatal("expected an error when both --global and --local are given")
+	}
+}
+
+// The overlay belongs at the repository root, not in whichever subdirectory it
+// was run from.
+func TestDefaultLocalConfigPathUsesTheRepositoryRoot(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	nested := filepath.Join(root, "cmd", "deep")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	previous, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(nested); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(previous) })
+
+	path, err := defaultLocalConfigPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The temporary directory may be reached through a symlink, so compare
+	// the directories as the filesystem resolves them.
+	want, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := filepath.EvalSymlinks(filepath.Dir(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got != want || filepath.Base(path) != workingon.LocalConfigName {
+		t.Errorf("path = %q, want %s at the repository root %q", path, workingon.LocalConfigName, want)
+	}
+}
+
 // time.Local reports "Local" on most machines, so the zone has to come from
 // where /etc/localtime points.
 func TestZoneFromPath(t *testing.T) {
@@ -478,5 +744,117 @@ func TestRenderedConfigIsValidYaml(t *testing.T) {
 		if !strings.Contains(rendered, want) {
 			t.Errorf("rendered config missing %q:\n%s", want, rendered)
 		}
+	}
+}
+
+// manyNames stands in for a workspace with more projects than a listing shows.
+func manyNames() []string {
+	names := make([]string, 0, choicesShown+5)
+	for i := 0; i < choicesShown; i++ {
+		names = append(names, fmt.Sprintf("Filler %d", i+1))
+	}
+	return append(names,
+		"Invoicing Backend",
+		"Invoicing Frontend",
+		"Legacy Invoices",
+		"Acme Website",
+		"Acme Mobile",
+	)
+}
+
+func askWith(answers string, names []string) (int, string) {
+	out := &bytes.Buffer{}
+	prompt := &prompter{reader: bufio.NewReader(strings.NewReader(answers)), out: out}
+
+	return pickOne(prompt, "Which one", names), out.String()
+}
+
+func TestPickOneReachesPastTheListingByTyping(t *testing.T) {
+	names := manyNames()
+
+	index, out := askWith("invoicing front\n1\n", names)
+
+	if got := names[index]; got != "Invoicing Frontend" {
+		t.Errorf("picked %q, want Invoicing Frontend", got)
+	}
+	if !strings.Contains(out, "... 5 more") {
+		t.Errorf("listing did not say what it left out:\n%s", out)
+	}
+	if !strings.Contains(out, `1 matching "invoicing front"`) {
+		t.Errorf("listing did not report the filter:\n%s", out)
+	}
+}
+
+func TestPickOneNumbersTheFilteredList(t *testing.T) {
+	names := manyNames()
+
+	// 2) of the three matches, not the second project overall.
+	index, _ := askWith("invoic\n2\n", names)
+
+	if got := names[index]; got != "Invoicing Frontend" {
+		t.Errorf("picked %q, want Invoicing Frontend", got)
+	}
+}
+
+func TestPickOneFiltersFromTheWholeList(t *testing.T) {
+	names := manyNames()
+
+	// A second filter replaces the first rather than narrowing within it.
+	index, _ := askWith("invoic\nacme mob\n1\n", names)
+
+	if got := names[index]; got != "Acme Mobile" {
+		t.Errorf("picked %q, want Acme Mobile", got)
+	}
+}
+
+func TestPickOneKeepsTheListWhenNothingMatches(t *testing.T) {
+	names := manyNames()
+
+	index, out := askWith("nothing here\nacme web\n1\n", names)
+
+	if got := names[index]; got != "Acme Website" {
+		t.Errorf("picked %q, want Acme Website", got)
+	}
+	if !strings.Contains(out, `Nothing matches "nothing here"`) {
+		t.Errorf("a filter matching nothing went unmentioned:\n%s", out)
+	}
+}
+
+func TestPickOneShowsEverythingAgain(t *testing.T) {
+	names := manyNames()
+
+	index, out := askWith("invoic\n*\n1\n", names)
+
+	if got := names[index]; got != names[0] {
+		t.Errorf("picked %q, want %q", got, names[0])
+	}
+	if strings.Count(out, "... 5 more") != 2 {
+		t.Errorf("the full listing did not come back:\n%s", out)
+	}
+}
+
+func TestPickOneRejectsANumberOutsideTheListing(t *testing.T) {
+	names := manyNames()
+
+	index, out := askWith("invoic\n4\n1\n", names)
+
+	if got := names[index]; got != "Invoicing Backend" {
+		t.Errorf("picked %q, want Invoicing Backend", got)
+	}
+	if !strings.Contains(out, "Pick a number between 1 and 3") {
+		t.Errorf("out of range number was not refused:\n%s", out)
+	}
+}
+
+func TestPickOneTakesABlankAnswerAsNone(t *testing.T) {
+	if index, _ := askWith("\n", manyNames()); index != -1 {
+		t.Errorf("blank answer picked %d, want -1", index)
+	}
+}
+
+// Nothing left to read must end the loop rather than spin on it.
+func TestPickOneGivesUpAtEndOfInput(t *testing.T) {
+	if index, _ := askWith("invoic\n", manyNames()); index != -1 {
+		t.Errorf("exhausted input picked %d, want -1", index)
 	}
 }

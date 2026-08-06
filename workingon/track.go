@@ -12,6 +12,7 @@ import (
 var (
 	ErrorPidRequired        = errors.New("no project id found for toggl but TogglPidRequired is set to true")
 	ErrorPidNotSetInMapping = errors.New("project pid not set in mapping")
+	ErrorTaskRequired       = errors.New("this workspace wants a task on every entry (toggl_task_required)")
 )
 
 // AppendStartTime is the moment the most recent time entry finished, for
@@ -45,7 +46,7 @@ func appendStartTimeFrom(client *toggl.Toggl) (time.Time, error) {
 //
 // It starts a fresh entry rather than reopening the old one, so the earlier
 // block of time keeps its own record.
-func ContinueLast(cfg *Config, start time.Time, dryRun bool) (*toggl.TimeEntry, error) {
+func ContinueLast(cfg *Config, req EntryRequest) (*toggl.TimeEntry, error) {
 	client := toggl.NewToggl(cfg.Settings.ToggleApiToken)
 
 	timeEntry, err := continuationOf(client)
@@ -53,6 +54,7 @@ func ContinueLast(cfg *Config, start time.Time, dryRun bool) (*toggl.TimeEntry, 
 		return nil, err
 	}
 
+	start := req.Start
 	if start.IsZero() {
 		start = time.Now()
 	}
@@ -63,7 +65,17 @@ func ContinueLast(cfg *Config, start time.Time, dryRun bool) (*toggl.TimeEntry, 
 		return nil, err
 	}
 
-	if dryRun {
+	// The entry this copies may have had neither a task nor a description of
+	// its own, and this one has to stand on its own feet.
+	if err := requireTask(cfg, timeEntry, req); err != nil {
+		return nil, err
+	}
+
+	if _, err := describe(timeEntry, req.Describe); err != nil {
+		return nil, err
+	}
+
+	if req.DryRun {
 		return timeEntry, nil
 	}
 
@@ -165,8 +177,8 @@ func findTaskByName(name string, projectId int) (*Task, error) {
 }
 
 // applyTask attaches an explicitly requested task, or the one a mapping pins
-// to this repository.
-func applyTask(timeEntry *toggl.TimeEntry, taskRef string, mapping *ProjectMapping) error {
+// to this repository, or the configured default.
+func applyTask(cfg *Config, timeEntry *toggl.TimeEntry, taskRef string, mapping *ProjectMapping) error {
 	if taskRef != "" {
 		// A --task wins over anything inferred, and may be an id or a name.
 		if id, err := strconv.Atoi(taskRef); err == nil {
@@ -187,6 +199,14 @@ func applyTask(timeEntry *toggl.TimeEntry, taskRef string, mapping *ProjectMappi
 
 	if timeEntry.TaskId == 0 && mapping != nil && mapping.TogglTask != 0 {
 		timeEntry.TaskId = mapping.TogglTask
+	}
+
+	// The default task belongs to the default project, so it is only right for
+	// an entry that landed in that project - anywhere else it would attach a
+	// task from a project the entry is not in.
+	if timeEntry.TaskId == 0 && cfg.Settings.ToggleDefaultTask != 0 &&
+		timeEntry.ProjectId != 0 && timeEntry.ProjectId == cfg.Settings.ToggleDefaultPid {
+		timeEntry.TaskId = cfg.Settings.ToggleDefaultTask
 	}
 
 	return nil
@@ -214,6 +234,16 @@ func resolveProject(cfg *Config, project string) (int, *ProjectMapping) {
 	}
 
 	return cfg.Settings.ToggleDefaultPid, nil
+}
+
+// CurrentProject is the project an entry started here and now would be filed
+// under with no --project flag, and the mapping that chose it if one did.
+//
+// It defers to resolveProject rather than repeating the precedence, so a
+// listing that points at the current project cannot drift from the one an
+// entry actually lands in.
+func CurrentProject(cfg *Config) (int, *ProjectMapping) {
+	return resolveProject(cfg, "")
 }
 
 // resolveEntry turns the summary argument into a time entry: a task key, a
@@ -290,7 +320,7 @@ func NewTimeEntry(cfg *Config, project string, wid int, summaryOrKey string,
 		timeEntry.ProjectId = pid
 	}
 
-	if err := applyTask(timeEntry, taskRef, mapping); err != nil {
+	if err := applyTask(cfg, timeEntry, taskRef, mapping); err != nil {
 		return nil, err
 	}
 
@@ -344,6 +374,105 @@ func setDuration(cfg *Config,
 
 }
 
+// TaskChooser picks one of a project's tasks, returning nil to leave the entry
+// without one. It is what makes a required task answerable rather than merely
+// refused.
+type TaskChooser func(projectId int, tasks []Task) (*Task, error)
+
+// TasksInProject are the tasks an entry in projectId can be attached to.
+//
+// Only toggl-native tasks are offered: a task from another source is carried in
+// the description, so there is nothing to attach and nothing that would satisfy
+// a workspace asking for a task.
+func TasksInProject(projectId int) ([]Task, error) {
+	if projectId == 0 {
+		return nil, nil
+	}
+
+	var found []Task
+
+	for _, source := range Registry.RegisteredSources {
+		tasks, err := source.GetTasks()
+		if err != nil {
+			return nil, err
+		}
+
+		for _, task := range tasks {
+			if task.TogglTask != 0 && task.Project.TogglProject == projectId {
+				found = append(found, task)
+			}
+		}
+	}
+
+	return found, nil
+}
+
+// requireTask settles the task of an entry that resolved to none: it is asked
+// for when the workspace requires one, or when --pick-task asked to choose.
+//
+// Toggl refuses an entry that breaks the workspace's rule, and it refuses it
+// after the fact - so the question is worth asking here, where the answer can
+// still go into the entry.
+func requireTask(cfg *Config, timeEntry *toggl.TimeEntry, req EntryRequest) error {
+	required := cfg.Settings.ToggleTaskRequired
+
+	// --pick-task asks even about a task that was inherited - from a mapping,
+	// from the default, or from the entry being continued - since that is the
+	// only reason to pass it. A --task names one outright, and settles it.
+	asked := req.PickTask && req.Task == ""
+
+	if !asked && (timeEntry.TaskId != 0 || !required) {
+		return nil
+	}
+
+	// An entry that already has a task meets the rule whatever comes of the
+	// asking, so from here on only a bare entry can fail.
+	unmet := required && timeEntry.TaskId == 0
+
+	if timeEntry.ProjectId == 0 {
+		if !unmet {
+			return nil
+		}
+		return fmt.Errorf("%w, and there is no project to take one from", ErrorTaskRequired)
+	}
+
+	tasks, err := TasksInProject(timeEntry.ProjectId)
+	if err != nil {
+		return err
+	}
+	if len(tasks) == 0 {
+		if !unmet {
+			return nil
+		}
+		return fmt.Errorf("%w, but project %d has none", ErrorTaskRequired, timeEntry.ProjectId)
+	}
+
+	var chosen *Task
+	if req.ChooseTask != nil {
+		if chosen, err = req.ChooseTask(timeEntry.ProjectId, tasks); err != nil {
+			return err
+		}
+	}
+
+	if chosen == nil {
+		if !unmet {
+			return nil
+		}
+		return fmt.Errorf("%w - name one with --task, or run this where you can be asked",
+			ErrorTaskRequired)
+	}
+
+	timeEntry.TaskId = chosen.TogglTask
+
+	// An entry that was never given a summary is about the task that was just
+	// chosen, exactly as it would be had the task been named as the summary.
+	if timeEntry.Description == "" {
+		timeEntry.Description = describeTask(chosen)
+	}
+
+	return nil
+}
+
 // EntryRequest is everything the commands can say about a new time entry.
 type EntryRequest struct {
 	Wid          int
@@ -356,6 +485,65 @@ type EntryRequest struct {
 	TemplateArgs map[string]string
 	Running      bool
 	DryRun       bool
+	// Describe names an entry that has none. Leave it nil to let a nameless
+	// entry through as it stands.
+	Describe Describer
+	// ChooseTask answers for an entry that resolved to no task, when the
+	// workspace requires one or PickTask asked to choose.
+	ChooseTask TaskChooser
+	// PickTask asks for the task to be chosen even where the workspace does
+	// not insist on one.
+	PickTask bool
+}
+
+// Describer supplies a description for an entry that carries none, returning
+// "" to leave it that way. It is given the entry so it can say which one it is
+// asking about.
+type Describer func(entry *toggl.TimeEntry) (string, error)
+
+// describe fills in a missing description, and reports whether one was added.
+func describe(timeEntry *toggl.TimeEntry, describer Describer) (bool, error) {
+	if describer == nil || timeEntry.Description != "" {
+		return false, nil
+	}
+
+	description, err := describer(timeEntry)
+	if err != nil || description == "" {
+		return false, err
+	}
+
+	timeEntry.Description = description
+
+	return true, nil
+}
+
+// NameRunningEntry gives the running timer a description when it has none,
+// returning the entry it named or nil when there was nothing to do.
+//
+// Toggl saves the running entry as a side effect of starting or stopping one,
+// and a workspace that requires descriptions refuses to save it without one.
+// That refusal arrives as a failure of whatever you were trying to do, naming a
+// requirement of an entry you were not thinking about - so settle it first.
+func NameRunningEntry(cfg *Config, describer Describer) (*toggl.TimeEntry, error) {
+	return nameRunningEntry(toggl.NewToggl(cfg.Settings.ToggleApiToken), describer)
+}
+
+func nameRunningEntry(client *toggl.Toggl, describer Describer) (*toggl.TimeEntry, error) {
+	if describer == nil {
+		return nil, nil
+	}
+
+	running, err := client.TimeEntries.Current()
+	if err != nil || running == nil {
+		return nil, err
+	}
+
+	named, err := describe(running, describer)
+	if err != nil || !named {
+		return nil, err
+	}
+
+	return client.TimeEntries.Update(running)
 }
 
 func AddOrStart(cfg *Config, req EntryRequest) (*toggl.TimeEntry, error) {
@@ -379,10 +567,31 @@ func AddOrStart(cfg *Config, req EntryRequest) (*toggl.TimeEntry, error) {
 		return nil, err
 	}
 
+	// Before the description, so that choosing a task can answer for both.
+	if err := requireTask(cfg, timeEntry, req); err != nil {
+		return nil, err
+	}
+
+	if _, err := describe(timeEntry, req.Describe); err != nil {
+		return nil, err
+	}
+
 	if req.DryRun {
 		return timeEntry, nil
 	}
 
-	cl := toggl.NewToggl(cfg.Settings.ToggleApiToken)
-	return cl.TimeEntries.Add(timeEntry)
+	return createEntry(toggl.NewToggl(cfg.Settings.ToggleApiToken), timeEntry, req)
+}
+
+func createEntry(client *toggl.Toggl, timeEntry *toggl.TimeEntry, req EntryRequest) (*toggl.TimeEntry, error) {
+	// Starting a timer stops whatever was running, so that entry has to be
+	// acceptable to toggl before this one can be created - otherwise its
+	// missing description is reported as a failure to start this one.
+	if req.Running {
+		if _, err := nameRunningEntry(client, req.Describe); err != nil {
+			return nil, err
+		}
+	}
+
+	return client.TimeEntries.Add(timeEntry)
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -19,6 +20,7 @@ type stubSource struct {
 	name    string
 	tasks   map[string]*Task
 	names   map[string]*Task
+	list    []Task
 	handles func(string) bool
 	err     error
 	calls   int
@@ -47,10 +49,10 @@ func (s *stubSource) FindTaskByName(name string, projectId int) (*Task, error) {
 	return nil, fmt.Errorf("%w: no task named %q", ErrTaskNotFound, name)
 }
 
-func (s *stubSource) Configure(*Config) error         { return nil }
-func (s *stubSource) GetName() string                 { return s.name }
-func (s *stubSource) GetTasks() ([]Task, error)       { return nil, nil }
-func (s *stubSource) GetProjects() ([]Project, error) { return nil, nil }
+func (s *stubSource) Configure(*Config) error             { return nil }
+func (s *stubSource) GetName() string                     { return s.name }
+func (s *stubSource) GetTasks() ([]Task, error)           { return s.list, s.err }
+func (s *stubSource) GetProjects(bool) ([]Project, error) { return nil, nil }
 
 func (s *stubSource) Handles(key string) bool {
 	if s.handles != nil {
@@ -516,6 +518,92 @@ func TestNewTimeEntryResolvedTaskBeatsTheMapping(t *testing.T) {
 	}
 }
 
+// The default task is what a repository overlay pins, so plain descriptions
+// booked there land on it.
+func TestNewTimeEntryUsesTheDefaultTask(t *testing.T) {
+	cfg := Config{Settings: Settings{
+		TogglePidRequired: true,
+		ToggleDefaultPid:  91210706,
+		ToggleDefaultTask: 241929955,
+	}}
+	withSources(t, cfg, namingSource())
+
+	entry, err := NewTimeEntry(&cfg, "", 5, "fixing the parser", nil, "")
+	if err != nil {
+		t.Fatalf("NewTimeEntry: %v", err)
+	}
+
+	if entry.ProjectId != 91210706 {
+		t.Errorf("project_id = %d, want the default", entry.ProjectId)
+	}
+	if entry.TaskId != 241929955 {
+		t.Errorf("task_id = %d, want the default task", entry.TaskId)
+	}
+}
+
+// The default task belongs to the default project, so an entry filed elsewhere
+// must not pick it up.
+func TestNewTimeEntryDefaultTaskStaysInItsProject(t *testing.T) {
+	cfg := Config{Settings: Settings{
+		TogglePidRequired: true,
+		ToggleDefaultPid:  91210706,
+		ToggleDefaultTask: 241929955,
+	}}
+	withSources(t, cfg, namingSource())
+
+	entry, err := NewTimeEntry(&cfg, "77918943", 5, "fixing the parser", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if entry.ProjectId != 77918943 {
+		t.Errorf("project_id = %d, want the one asked for", entry.ProjectId)
+	}
+	if entry.TaskId != 0 {
+		t.Errorf("task_id = %d, want no task from another project", entry.TaskId)
+	}
+}
+
+// An explicit --task beats the default.
+func TestNewTimeEntryTaskFlagOverridesTheDefaultTask(t *testing.T) {
+	cfg := Config{Settings: Settings{
+		TogglePidRequired: true,
+		ToggleDefaultPid:  91210706,
+		ToggleDefaultTask: 241929955,
+	}}
+	withSources(t, cfg, namingSource())
+
+	entry, err := NewTimeEntry(&cfg, "", 5, "fixing the parser", nil, "77918943")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry.TaskId != 77918943 {
+		t.Errorf("task_id = %d, want the flag's 77918943", entry.TaskId)
+	}
+}
+
+// A mapping's own task is the more specific answer, so it wins over the
+// default.
+func TestNewTimeEntryMappingTaskBeatsTheDefaultTask(t *testing.T) {
+	cfg := Config{
+		Settings: Settings{
+			TogglePidRequired: true,
+			ToggleDefaultPid:  91210706,
+			ToggleDefaultTask: 241929955,
+		},
+		Projects: []ProjectMapping{{Name: "SW", TogglePid: 91210706, TogglTask: 77918943}},
+	}
+	withSources(t, cfg, namingSource())
+
+	entry, err := NewTimeEntry(&cfg, "SW", 5, "fixing the parser", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry.TaskId != 77918943 {
+		t.Errorf("task_id = %d, want the mapping's task", entry.TaskId)
+	}
+}
+
 // --append picks up where the last entry stopped, so the gap since then is
 // attributed to the new entry rather than lost.
 func TestAppendStartTime(t *testing.T) {
@@ -717,5 +805,409 @@ func TestSetDurationNeedsStopOrDuration(t *testing.T) {
 
 	if err := setDuration(&Config{}, entry, start, time.Time{}, 0, false); err == nil {
 		t.Fatal("expected an error with neither a stop time nor a duration")
+	}
+}
+
+// runningEntryServer answers the current-entry lookup with body, and records
+// what was sent to name it.
+func runningEntryServer(t *testing.T, body string) (*toggl.Toggl, *[]string) {
+	t.Helper()
+
+	var writes []string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			raw, _ := io.ReadAll(r.Body)
+			writes = append(writes, fmt.Sprintf("%s %s %s", r.Method, r.URL.Path, strings.TrimSpace(string(raw))))
+		}
+		fmt.Fprint(w, body)
+	}))
+	t.Cleanup(srv.Close)
+
+	return toggl.NewTogglAt("test-token", srv.URL), &writes
+}
+
+func TestNameRunningEntryNamesAnUnnamedTimer(t *testing.T) {
+	client, writes := runningEntryServer(t,
+		`{"id":42,"workspace_id":7,"description":"","start":"2026-08-06T09:00:00Z","duration":-1}`)
+
+	named, err := nameRunningEntry(client, func(entry *toggl.TimeEntry) (string, error) {
+		if entry.Id != 42 {
+			t.Errorf("asked about entry %d, want the running one (42)", entry.Id)
+		}
+		return "Untitled", nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(*writes) != 1 {
+		t.Fatalf("wrote %v, want a single update", *writes)
+	}
+	if !strings.Contains((*writes)[0], "PUT /workspaces/7/time_entries/42") {
+		t.Errorf("update went to %q", (*writes)[0])
+	}
+	if !strings.Contains((*writes)[0], `"description":"Untitled"`) {
+		t.Errorf("update did not carry the description: %q", (*writes)[0])
+	}
+	if named == nil {
+		t.Error("the named entry was not reported back")
+	}
+}
+
+func TestNameRunningEntryLeavesAlone(t *testing.T) {
+	cases := []struct {
+		name    string
+		body    string
+		namer   Describer
+		wantErr bool
+	}{
+		{
+			name:  "an entry that already has a description",
+			body:  `{"id":42,"workspace_id":7,"description":"hacking","duration":-1}`,
+			namer: func(*toggl.TimeEntry) (string, error) { return "Untitled", nil },
+		},
+		{
+			name:  "nothing running",
+			body:  `null`,
+			namer: func(*toggl.TimeEntry) (string, error) { return "Untitled", nil },
+		},
+		{
+			name:  "no describer at all",
+			body:  `{"id":42,"workspace_id":7,"description":"","duration":-1}`,
+			namer: nil,
+		},
+		{
+			name:  "a describer that declines to name it",
+			body:  `{"id":42,"workspace_id":7,"description":"","duration":-1}`,
+			namer: func(*toggl.TimeEntry) (string, error) { return "", nil },
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client, writes := runningEntryServer(t, tc.body)
+
+			if _, err := nameRunningEntry(client, tc.namer); err != nil {
+				t.Fatal(err)
+			}
+			if len(*writes) != 0 {
+				t.Errorf("wrote %v, want nothing", *writes)
+			}
+		})
+	}
+}
+
+// A describer that cannot answer must stop the run rather than book an entry
+// under a name nobody chose.
+func TestNameRunningEntryReportsADescriberFailure(t *testing.T) {
+	client, _ := runningEntryServer(t,
+		`{"id":42,"workspace_id":7,"description":"","duration":-1}`)
+
+	_, err := nameRunningEntry(client, func(*toggl.TimeEntry) (string, error) {
+		return "", errors.New("nobody to ask")
+	})
+
+	if err == nil || !strings.Contains(err.Error(), "nobody to ask") {
+		t.Errorf("error = %v, want it to mention the describer's failure", err)
+	}
+}
+
+func TestDescribeOnlyFillsAMissingDescription(t *testing.T) {
+	entry := &toggl.TimeEntry{Description: "hacking"}
+
+	named, err := describe(entry, func(*toggl.TimeEntry) (string, error) { return "Untitled", nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if named || entry.Description != "hacking" {
+		t.Errorf("description = %q (named %v), want it left alone", entry.Description, named)
+	}
+
+	blank := &toggl.TimeEntry{}
+	if named, err = describe(blank, func(*toggl.TimeEntry) (string, error) { return "Untitled", nil }); err != nil {
+		t.Fatal(err)
+	}
+	if !named || blank.Description != "Untitled" {
+		t.Errorf("description = %q (named %v), want Untitled", blank.Description, named)
+	}
+}
+
+// Starting a timer while an unnamed one runs: toggl saves the running entry as
+// it stops it, so the description has to be there before the new entry is
+// posted.
+func TestCreateEntryNamesTheRunningTimerFirst(t *testing.T) {
+	var calls []string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, r.Method+" "+r.URL.Path)
+
+		if strings.HasSuffix(r.URL.Path, "/current") {
+			fmt.Fprint(w, `{"id":42,"workspace_id":7,"description":"","duration":-1}`)
+			return
+		}
+		fmt.Fprint(w, `{"id":43,"workspace_id":7,"description":"something","duration":-1}`)
+	}))
+	defer srv.Close()
+
+	start := time.Now()
+
+	_, err := createEntry(toggl.NewTogglAt("test-token", srv.URL),
+		&toggl.TimeEntry{Description: "something", WorkspaceId: 7, Start: &start,
+			Duration: toggl.RunningDuration},
+		EntryRequest{
+			Running:  true,
+			Describe: func(*toggl.TimeEntry) (string, error) { return "Untitled", nil },
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{
+		"GET /me/time_entries/current",
+		"PUT /workspaces/7/time_entries/42",
+		"POST /workspaces/7/time_entries",
+	}
+
+	if strings.Join(calls, ", ") != strings.Join(want, ", ") {
+		t.Errorf("calls = %v, want %v", calls, want)
+	}
+}
+
+// Adding time that is already over stops nothing, so there is no reason to go
+// looking for a running entry.
+func TestCreateEntryLeavesTheRunningTimerAloneWhenNotStarting(t *testing.T) {
+	var calls []string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, r.Method+" "+r.URL.Path)
+		fmt.Fprint(w, `{"id":43,"workspace_id":7,"description":"something","duration":3600}`)
+	}))
+	defer srv.Close()
+
+	start := time.Now()
+
+	_, err := createEntry(toggl.NewTogglAt("test-token", srv.URL),
+		&toggl.TimeEntry{Description: "something", WorkspaceId: 7, Start: &start, Duration: 3600},
+		EntryRequest{
+			Describe: func(*toggl.TimeEntry) (string, error) { return "Untitled", nil },
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(calls) != 1 || calls[0] != "POST /workspaces/7/time_entries" {
+		t.Errorf("calls = %v, want just the create", calls)
+	}
+}
+
+// projectTasks is a source whose listing carries two toggl tasks in one
+// project, and one belonging to another project entirely.
+func projectTasks() *stubSource {
+	here := Project{Key: "91", Name: "SW BIZ DEV", TogglProject: 91}
+	elsewhere := Project{Key: "92", Name: "Other", TogglProject: 92}
+
+	return &stubSource{
+		name: "toggl",
+		list: []Task{
+			{Key: "1", Summary: "Development", TogglTask: 1, Project: here},
+			{Key: "2", Summary: "ATD Conference", TogglTask: 2, Project: here},
+			{Key: "3", Summary: "Not here", TogglTask: 3, Project: elsewhere},
+			// A task from a source that is not toggl: carried in the
+			// description, with nothing for task_id to point at.
+			{Key: "MOET-1", Summary: "Foreign", Project: here},
+		},
+	}
+}
+
+func TestTasksInProjectOffersOnlyAttachableTasks(t *testing.T) {
+	cfg := Config{}
+	withSources(t, cfg, projectTasks())
+
+	tasks, err := TasksInProject(91)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(tasks) != 2 {
+		t.Fatalf("got %d tasks, want the two toggl tasks in project 91: %+v", len(tasks), tasks)
+	}
+	for _, task := range tasks {
+		if task.TogglTask == 0 || task.Project.TogglProject != 91 {
+			t.Errorf("offered %+v, which cannot be attached to an entry in project 91", task)
+		}
+	}
+}
+
+// chooseFirst answers the question with a project's first task, and records
+// that it was asked.
+func chooseFirst(asked *int) TaskChooser {
+	return func(projectId int, tasks []Task) (*Task, error) {
+		*asked++
+		return &tasks[0], nil
+	}
+}
+
+func chooseNothing(asked *int) TaskChooser {
+	return func(int, []Task) (*Task, error) {
+		*asked++
+		return nil, nil
+	}
+}
+
+func TestRequireTaskAsksWhenTheWorkspaceWantsOne(t *testing.T) {
+	cfg := Config{Settings: Settings{ToggleTaskRequired: true}}
+	withSources(t, cfg, projectTasks())
+
+	asked := 0
+	entry := &toggl.TimeEntry{ProjectId: 91}
+
+	if err := requireTask(&cfg, entry, EntryRequest{ChooseTask: chooseFirst(&asked)}); err != nil {
+		t.Fatal(err)
+	}
+
+	if asked != 1 {
+		t.Errorf("asked %d times, want once", asked)
+	}
+	if entry.TaskId != 1 {
+		t.Errorf("task_id = %d, want the chosen task", entry.TaskId)
+	}
+	// An entry with nothing else to go on takes its name from the task.
+	if entry.Description != "Development" {
+		t.Errorf("description = %q, want the task's summary", entry.Description)
+	}
+}
+
+func TestRequireTaskLeavesAResolvedTaskAlone(t *testing.T) {
+	cfg := Config{Settings: Settings{ToggleTaskRequired: true}}
+	withSources(t, cfg, projectTasks())
+
+	asked := 0
+	entry := &toggl.TimeEntry{ProjectId: 91, TaskId: 2, Description: "hacking"}
+
+	if err := requireTask(&cfg, entry, EntryRequest{ChooseTask: chooseFirst(&asked)}); err != nil {
+		t.Fatal(err)
+	}
+
+	if asked != 0 {
+		t.Error("asked about an entry that already had a task")
+	}
+	if entry.TaskId != 2 {
+		t.Errorf("task_id = %d, want the task it came in with", entry.TaskId)
+	}
+}
+
+func TestRequireTaskStaysOutOfTheWayWhenNotRequired(t *testing.T) {
+	cfg := Config{}
+	withSources(t, cfg, projectTasks())
+
+	asked := 0
+	entry := &toggl.TimeEntry{ProjectId: 91}
+
+	if err := requireTask(&cfg, entry, EntryRequest{ChooseTask: chooseFirst(&asked)}); err != nil {
+		t.Fatal(err)
+	}
+
+	if asked != 0 {
+		t.Error("asked for a task the workspace does not require")
+	}
+	if entry.TaskId != 0 {
+		t.Errorf("task_id = %d, want none", entry.TaskId)
+	}
+}
+
+// A script or a cron job has nobody to answer, and an entry toggl would refuse
+// is worse than a failure that says why.
+func TestRequireTaskReportsWhenItCannotBeAnswered(t *testing.T) {
+	cfg := Config{Settings: Settings{ToggleTaskRequired: true}}
+	withSources(t, cfg, projectTasks())
+
+	cases := map[string]struct {
+		entry   *toggl.TimeEntry
+		chooser TaskChooser
+		want    string
+	}{
+		"nobody to ask":           {&toggl.TimeEntry{ProjectId: 91}, nil, "--task"},
+		"the question declined":   {&toggl.TimeEntry{ProjectId: 91}, chooseNothing(new(int)), "--task"},
+		"no project to ask about": {&toggl.TimeEntry{}, chooseFirst(new(int)), "no project"},
+		"a project with no tasks": {&toggl.TimeEntry{ProjectId: 99}, chooseFirst(new(int)), "has none"},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			err := requireTask(&cfg, tc.entry, EntryRequest{ChooseTask: tc.chooser})
+
+			if !errors.Is(err, ErrorTaskRequired) {
+				t.Fatalf("error = %v, want it to be ErrorTaskRequired", err)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error = %q, want it to mention %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// --pick-task is only ever passed to be asked, so an inherited task - from a
+// mapping, a default, or the entry being continued - is not an answer.
+func TestRequireTaskPickOverridesAnInheritedTask(t *testing.T) {
+	cfg := Config{}
+	withSources(t, cfg, projectTasks())
+
+	asked := 0
+	entry := &toggl.TimeEntry{ProjectId: 91, TaskId: 2, Description: "hacking"}
+
+	if err := requireTask(&cfg, entry, EntryRequest{PickTask: true, ChooseTask: chooseFirst(&asked)}); err != nil {
+		t.Fatal(err)
+	}
+
+	if asked != 1 {
+		t.Errorf("asked %d times, want once", asked)
+	}
+	if entry.TaskId != 1 {
+		t.Errorf("task_id = %d, want the chosen task", entry.TaskId)
+	}
+	// The entry had a name of its own; the task only supplies one that has none.
+	if entry.Description != "hacking" {
+		t.Errorf("description = %q, want the one the entry came in with", entry.Description)
+	}
+}
+
+// Declining the question leaves the entry as it was rather than stripping the
+// task it already had.
+func TestRequireTaskPickKeepsTheOldTaskWhenDeclined(t *testing.T) {
+	cfg := Config{Settings: Settings{ToggleTaskRequired: true}}
+	withSources(t, cfg, projectTasks())
+
+	entry := &toggl.TimeEntry{ProjectId: 91, TaskId: 2}
+
+	if err := requireTask(&cfg, entry, EntryRequest{PickTask: true, ChooseTask: chooseNothing(new(int))}); err != nil {
+		t.Fatal(err)
+	}
+
+	if entry.TaskId != 2 {
+		t.Errorf("task_id = %d, want the task it came in with", entry.TaskId)
+	}
+}
+
+// An explicit --task is an answer already given.
+func TestRequireTaskPickDefersToAnExplicitTask(t *testing.T) {
+	cfg := Config{}
+	withSources(t, cfg, projectTasks())
+
+	asked := 0
+	entry := &toggl.TimeEntry{ProjectId: 91, TaskId: 2}
+
+	err := requireTask(&cfg, entry, EntryRequest{
+		PickTask: true, Task: "ATD Conference", ChooseTask: chooseFirst(&asked),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if asked != 0 {
+		t.Error("asked about a task that --task had already named")
+	}
+	if entry.TaskId != 2 {
+		t.Errorf("task_id = %d, want the one --task resolved to", entry.TaskId)
 	}
 }

@@ -52,10 +52,12 @@ func Execute() {
 		NewStartCommand(cfg),
 		NewTasksCommand(cfg),
 		NewWhatCommand(cfg),
+		NewNowCommand(cfg),
+		NewShowCommand(cfg),
 		NewStopCommand(cfg),
 		NewContinueCommand(cfg),
 		NewCacheCommand(cfg),
-		NewInitCommand(),
+		NewInitCommand(cfg),
 	)
 
 	if err := rootCmd.Execute(); err != nil {

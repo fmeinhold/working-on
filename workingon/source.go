@@ -29,7 +29,11 @@ type Source interface {
 
 	GetTask(key string) (*Task, error)
 	GetTasks() ([]Task, error)
-	GetProjects() ([]Project, error)
+
+	// GetProjects lists the source's projects. Archived ones are left out
+	// unless asked for: they pile up without limit and are not what someone
+	// listing projects is looking for.
+	GetProjects(includeArchived bool) ([]Project, error)
 }
 
 type registry struct {

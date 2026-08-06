@@ -39,10 +39,28 @@ settings:
   #   2. a task named as the summary  (wo add "ATD Conference" 2h)
   #   3. a task referenced by id      (wo add 241929955 2h)
   #   4. the toggl_task of the mapping this repository matches
+  #   5. toggl_default_task, for an entry that landed in toggl_default_pid
   # Task names are matched exactly, case insensitively, and only within the
   # project already resolved - so a description is never mistaken for a task.
   toggl_pid_required: true
   toggl_default_pid: 0
+
+  # Some workspaces want a task on every entry. Where that holds, `wo` asks
+  # which one - listing the project's tasks - rather than creating an entry
+  # toggl will refuse. --pick-task asks even where it does not, and --task or
+  # WO_TOGGL_TASK answers without being asked.
+  toggl_task_required: false
+
+  # The task an entry falls back to. It only applies to entries that landed in
+  # toggl_default_pid, since that is the project it belongs to - usually it is
+  # set per checkout in a .workingon.yaml rather than here.
+  toggl_default_task: 0
+
+  # What to call an entry that has no description. A toggl workspace can be set
+  # up to require one, and that applies to the timer already running as much as
+  # to the entry you are creating - starting or stopping something saves it.
+  # Left empty, `wo` asks; a run with nowhere to ask calls it "Untitled".
+  toggl_default_description: ""
 
 
 # Mapping a project name or a git repository to a toggl project, and
@@ -84,14 +102,11 @@ sources: {}
 # Per repository overrides
 # ------------------------
 # A .workingon.yaml in a checkout is merged over this file, so it only needs
-# the keys it changes:
+# the keys it changes. `wo init` writes one for you once this file exists:
 #
 #   settings:
-#     toggl_wid: 1234567
-#   mappings:
-#     - name: "THIS-REPO"
-#       toggl_pid: 987654
-#       toggl_task: 123456
+#     toggl_default_pid: 987654
+#     toggl_default_task: 123456
 #
 # It is looked for from the working directory upwards, stopping at the
 # repository root. Credentials are ignored there: a checked in overlay cannot

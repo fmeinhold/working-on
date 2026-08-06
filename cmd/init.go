@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/fefeme/workingon/toggl"
+	"github.com/fefeme/workingon/workingon"
 	"github.com/spf13/cobra"
 )
 
@@ -26,7 +27,17 @@ type initAnswers struct {
 	DateLayout     string
 	DateTimeLayout string
 	PidRequired    bool
+	TaskRequired   bool
 	DefaultPid     int
+}
+
+// localAnswers is what `wo init` asks for once a global config exists: which
+// project and task work done in this directory belongs to.
+type localAnswers struct {
+	ProjectId   int
+	ProjectName string
+	TaskId      int
+	TaskName    string
 }
 
 // initSession is the io and api the command talks to, injected so the flow can
@@ -34,16 +45,20 @@ type initAnswers struct {
 type initSession struct {
 	in     io.Reader
 	out    io.Writer
+	cfg    *workingon.Config
 	token  string
 	force  bool
+	global bool
+	local  bool
 	path   string
 	client func(apiToken string) *toggl.Toggl
 }
 
-func NewInitCommand() *cobra.Command {
+func NewInitCommand(cfg *workingon.Config) *cobra.Command {
 	session := initSession{
 		in:     os.Stdin,
 		out:    os.Stdout,
+		cfg:    cfg,
 		client: toggl.NewToggl,
 	}
 
@@ -52,9 +67,14 @@ func NewInitCommand() *cobra.Command {
 		Short: "Create a config file",
 		Long: `Create a config file.
 
-Asks for your toggl api token, checks it, and lets you pick a workspace and a
-default project from what the account actually has. Writes the result to
-~/.config/working_on/config.yaml.`,
+With no config yet, this sets up the global one: it asks for your toggl api
+token, checks it, and lets you pick a workspace and a default project from what
+the account actually has. The result is written to
+~/.config/working_on/config.yaml.
+
+With a global config already in place, it sets up this repository instead,
+asking which project and task work done here belongs to and writing a
+` + workingon.LocalConfigName + ` overlay beside your checkout.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runInit(session)
@@ -65,13 +85,50 @@ default project from what the account actually has. Writes the result to
 		"Toggl api token, to avoid typing it where it can be seen")
 	command.Flags().BoolVarP(&session.force, "force", "f", false,
 		"Overwrite an existing config file")
+	command.Flags().BoolVar(&session.global, "global", false,
+		"Set up the global config, even if there already is one")
+	command.Flags().BoolVar(&session.local, "local", false,
+		"Set up this repository, writing a "+workingon.LocalConfigName+" overlay")
 	command.Flags().StringVar(&session.path, "path", "",
-		"Where to write the config (defaults to ~/.config/working_on/config.yaml)")
+		"Where to write the config (defaults to ~/.config/working_on/config.yaml, "+
+			"or "+workingon.LocalConfigName+" for a repository)")
 
 	return command
 }
 
 func runInit(session initSession) error {
+	if session.global && session.local {
+		return fmt.Errorf("--global and --local ask for different files - pick one")
+	}
+
+	if session.wantsLocal() {
+		return runLocalInit(session)
+	}
+
+	return runGlobalInit(session)
+}
+
+// wantsLocal decides which of the two files this run is about. Once the global
+// config exists, what is left to set up is the directory you are standing in.
+func (s initSession) wantsLocal() bool {
+	switch {
+	case s.local:
+		return true
+	case s.global:
+		return false
+	default:
+		return s.configured()
+	}
+}
+
+// configured reports whether a usable global config was loaded. A config that
+// names no token cannot reach toggl, so it is no better than none for the
+// question of which flow to run.
+func (s initSession) configured() bool {
+	return s.cfg != nil && s.cfg.Settings.ToggleApiToken != ""
+}
+
+func runGlobalInit(session initSession) error {
 	path := session.path
 	if path == "" {
 		resolved, err := defaultConfigPath()
@@ -109,6 +166,94 @@ func runInit(session initSession) error {
 	return nil
 }
 
+// runLocalInit writes the per repository overlay: the project and task that
+// entries created here default to.
+func runLocalInit(session initSession) error {
+	if !session.configured() {
+		return fmt.Errorf("there is no global config to build on - run `wo init --global` first")
+	}
+
+	wid := session.cfg.Settings.ToggleWid
+	if wid == 0 {
+		return fmt.Errorf("the global config names no workspace (toggl_wid) to pick a project from")
+	}
+
+	path := session.path
+	if path == "" {
+		resolved, err := defaultLocalConfigPath()
+		if err != nil {
+			return err
+		}
+		path = resolved
+	}
+
+	if _, err := os.Stat(path); err == nil && !session.force {
+		return fmt.Errorf("%s already exists - pass --force to replace it", path)
+	}
+
+	prompt := &prompter{reader: bufio.NewReader(session.in), out: session.out}
+	client := session.client(session.cfg.Settings.ToggleApiToken)
+
+	answers, err := askLocalQuestions(prompt, client, wid)
+	if err != nil {
+		return err
+	}
+
+	rendered, err := renderLocalConfig(answers)
+	if err != nil {
+		return err
+	}
+
+	if err := writeLocalConfig(path, rendered); err != nil {
+		return err
+	}
+
+	fmt.Fprintf(session.out, "\nWrote %s\n", path)
+	fmt.Fprint(session.out, localSummary(answers))
+
+	return nil
+}
+
+func askLocalQuestions(prompt *prompter, client *toggl.Toggl, wid int) (localAnswers, error) {
+	var answers localAnswers
+
+	projects, err := activeProjects(client, wid)
+	if err != nil {
+		return answers, err
+	}
+	if len(projects) == 0 {
+		return answers, fmt.Errorf("workspace %d has no active projects to choose from", wid)
+	}
+
+	project := pickProject(prompt, projects, "\nWhich project does work here belong to")
+	if project == nil {
+		return answers, fmt.Errorf("a project is what this file is for - nothing to write")
+	}
+	answers.ProjectId = project.Id
+	answers.ProjectName = project.Name
+
+	task, err := pickTask(prompt, client, wid, *project)
+	if err != nil {
+		return answers, err
+	}
+	if task != nil {
+		answers.TaskId = task.Id
+		answers.TaskName = task.Name
+	}
+
+	return answers, nil
+}
+
+func localSummary(answers localAnswers) string {
+	if answers.TaskId == 0 {
+		return fmt.Sprintf("Work here goes to %q, with no task.\n"+
+			"\nTry `wo start something` to begin.\n", answers.ProjectName)
+	}
+
+	return fmt.Sprintf("Work here goes to %q, as %q.\n"+
+		"\nTry `wo start something` to begin.\n", answers.ProjectName, answers.TaskName)
+}
+
 func askInitQuestions(prompt *prompter, session initSession) (initAnswers, error) {
 	var answers initAnswers
 
@@ -144,6 +289,7 @@ func askInitQuestions(prompt *prompter, session initSession) (initAnswers, error
 	answers.DateTimeLayout = prompt.line("Date and time format", answers.DateLayout+" 15:04")
 
 	answers.PidRequired = prompt.yesNo("Require a project on every entry", true)
+	answers.TaskRequired = prompt.yesNo("Require a task on every entry", false)
 
 	defaultPid, err := chooseDefaultProject(prompt, client, workspace.Id)
 	if err != nil {
@@ -196,13 +342,13 @@ func chooseWorkspace(prompt *prompter, workspaces []toggl.Workspace) (toggl.Work
 // chooseDefaultProject offers the workspace's projects as the fallback for
 // entries that name no project of their own.
 func chooseDefaultProject(prompt *prompter, client *toggl.Toggl, wid int) (int, error) {
-	projects, err := client.WorkspaceClient.ListProjects(wid)
+	projects, err := activeProjects(client, wid)
 	if err != nil {
 		// Not worth failing setup over; the config is usable without one.
 		fmt.Fprintf(prompt.out, "\nCould not list projects (%v), skipping the default.\n", err)
 		return 0, nil
 	}
-	if projects.Count == 0 {
+	if len(projects) == 0 {
 		return 0, nil
 	}
 
@@ -210,39 +356,174 @@ func chooseDefaultProject(prompt *prompter, client *toggl.Toggl, wid int) (int, 
 		return 0, nil
 	}
 
-	active := make([]toggl.Project, 0, projects.Count)
-	for _, project := range projects.Projects {
-		if project.Active {
-			active = append(active, project)
+	project := pickProject(prompt, projects, "Which one (blank for none)")
+	if project == nil {
+		return 0, nil
+	}
+
+	return project.Id, nil
+}
+
+// activeProjects are the projects worth offering. Archived ones are a poor
+// default for entries yet to be created, and there are usually far more of them
+// than live ones.
+func activeProjects(client *toggl.Toggl, wid int) ([]toggl.Project, error) {
+	projects, err := client.WorkspaceClient.ListProjectsWhere(wid,
+		toggl.ProjectQuery{ActiveOnly: true})
+	if err != nil {
+		return nil, err
+	}
+	return projects.Projects, nil
+}
+
+// pickProject lists projects and reads a choice, returning nil for a blank
+// answer.
+func pickProject(prompt *prompter, projects []toggl.Project, question string) *toggl.Project {
+	names := make([]string, len(projects))
+	for i, project := range projects {
+		names[i] = project.Name
+	}
+
+	index := pickOne(prompt, question, names)
+	if index < 0 {
+		return nil
+	}
+
+	return &projects[index]
+}
+
+// pickTask offers the tasks of the chosen project, for entries that name none
+// of their own.
+func pickTask(prompt *prompter, client *toggl.Toggl, wid int, project toggl.Project) (*toggl.Task, error) {
+	tasks, err := client.TaskClient.List(wid)
+	if err != nil {
+		// A project alone is a useful overlay, so this is not fatal.
+		fmt.Fprintf(prompt.out, "\nCould not list tasks (%v), skipping the default.\n", err)
+		return nil, nil
+	}
+
+	var active []toggl.Task
+	for _, task := range tasks.Tasks {
+		if task.ProjectId == project.Id && task.Active && !task.IsDeleted() {
+			active = append(active, task)
 		}
 	}
+
 	if len(active) == 0 {
-		active = projects.Projects
+		fmt.Fprintf(prompt.out, "\n%s has no active tasks.\n", project.Name)
+		return nil, nil
 	}
 
-	shown := active
-	if len(shown) > 20 {
-		shown = shown[:20]
-		fmt.Fprintf(prompt.out, "(showing the first 20 of %d)\n", len(active))
+	fmt.Fprintf(prompt.out, "\nTasks in %s:\n", project.Name)
+
+	names := make([]string, len(active))
+	for i, task := range active {
+		names[i] = task.Name
 	}
 
-	for i, project := range shown {
-		fmt.Fprintf(prompt.out, "  %d) %s\n", i+1, project.Name)
+	index := pickOne(prompt, "Which task should new entries default to (blank for none)", names)
+	if index < 0 {
+		return nil, nil
 	}
+
+	return &active[index], nil
+}
+
+// choicesShown caps a listing at what someone can still read in a terminal.
+// Everything past it is still reachable, by typing part of a name.
+const choicesShown = 20
+
+// showAll is the answer that undoes a filter, since a blank line already means
+// "none of these".
+const showAll = "*"
+
+// pickOne lists the options and reads a choice, returning the index of the one
+// picked or -1 for a blank answer.
+//
+// An answer that is not a number narrows the listing to the options containing
+// it, which is how anything past choicesShown is chosen. Narrowing always
+// starts from the full list, so a second filter replaces the first rather than
+// digging further into it.
+func pickOne(prompt *prompter, question string, names []string) int {
+	matches := make([]int, len(names))
+	for i := range names {
+		matches[i] = i
+	}
+
+	shown := listChoices(prompt, names, matches, "")
 
 	for {
-		answer := prompt.line("Which one (blank for none)", "")
+		answer := prompt.line(question, "")
 		if answer == "" {
-			return 0, nil
+			return -1
 		}
 
-		choice, err := strconv.Atoi(answer)
-		if err == nil && choice >= 1 && choice <= len(shown) {
-			return shown[choice-1].Id, nil
+		if choice, err := strconv.Atoi(answer); err == nil {
+			if choice >= 1 && choice <= shown {
+				return matches[choice-1]
+			}
+
+			fmt.Fprintf(prompt.out, "Pick a number between 1 and %d, "+
+				"type part of a name to narrow the list, or leave it blank.\n", shown)
+			continue
 		}
 
-		fmt.Fprintf(prompt.out, "Pick a number between 1 and %d, or leave it blank.\n", len(shown))
+		filter := answer
+		if filter == showAll {
+			filter = ""
+		}
+
+		narrowed := matching(names, filter)
+		if len(narrowed) == 0 {
+			fmt.Fprintf(prompt.out, "Nothing matches %q - try something shorter, "+
+				"or %s for the whole list.\n", answer, showAll)
+			continue
+		}
+
+		matches = narrowed
+		shown = listChoices(prompt, names, matches, filter)
 	}
+}
+
+// matching are the indexes of the names containing filter, ignoring case. An
+// empty filter matches everything.
+func matching(names []string, filter string) []int {
+	wanted := strings.ToLower(filter)
+
+	var found []int
+	for i, name := range names {
+		if strings.Contains(strings.ToLower(name), wanted) {
+			found = append(found, i)
+		}
+	}
+
+	return found
+}
+
+// listChoices prints a numbered listing of matches, capped at choicesShown, and
+// returns how many rows it printed - the range a numeric answer may name.
+func listChoices(prompt *prompter, names []string, matches []int, filter string) int {
+	shown := len(matches)
+	if shown > choicesShown {
+		shown = choicesShown
+	}
+
+	if filter != "" {
+		fmt.Fprintf(prompt.out, "\n%d matching %q:\n", len(matches), filter)
+	}
+
+	for i := 0; i < shown; i++ {
+		fmt.Fprintf(prompt.out, "  %d) %s\n", i+1, names[matches[i]])
+	}
+
+	switch hidden := len(matches) - shown; {
+	case hidden > 0:
+		fmt.Fprintf(prompt.out, "  ... %d more - type part of a name to narrow the list\n", hidden)
+	case filter != "":
+		fmt.Fprintf(prompt.out, "  (%s for the whole list)\n", showAll)
+	}
+
+	return shown
 }
 
 // prompter asks questions on out and reads answers from reader.
@@ -351,6 +632,39 @@ func defaultConfigPath() (string, error) {
 	return filepath.Join(home, ".config", "working_on", "config.yaml"), nil
 }
 
+// defaultLocalConfigPath is the repository root when we are standing in a
+// checkout, and the working directory otherwise. The overlay applies from where
+// it sits downwards, so the root is where it covers the whole project rather
+// than whichever subdirectory `wo init` happened to be run in.
+func defaultLocalConfigPath() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+
+	if root := repositoryRoot(dir); root != "" {
+		dir = root
+	}
+
+	return filepath.Join(dir, workingon.LocalConfigName), nil
+}
+
+// repositoryRoot walks up from dir looking for a .git, returning "" when there
+// is none above.
+func repositoryRoot(dir string) string {
+	for {
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+			return dir
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
+}
+
 // writeConfig writes the config, creating its directory. Both are private:
 // the file holds an api token.
 func writeConfig(path string, content string) error {
@@ -360,8 +674,23 @@ func writeConfig(path string, content string) error {
 	return os.WriteFile(path, []byte(content), 0o600)
 }
 
+// writeLocalConfig writes the repository overlay. It holds no credentials -
+// they are ignored from this file - so it is readable like the rest of the
+// checkout it is likely to be committed to.
+func writeLocalConfig(path string, content string) error {
+	return os.WriteFile(path, []byte(content), 0o644)
+}
+
 func renderConfig(answers initAnswers) (string, error) {
-	tpl, err := template.New("config").Parse(configTemplate)
+	return render(configTemplate, answers)
+}
+
+func renderLocalConfig(answers localAnswers) (string, error) {
+	return render(localConfigTemplate, answers)
+}
+
+func render(text string, answers interface{}) (string, error) {
+	tpl, err := template.New("config").Parse(text)
 	if err != nil {
 		return "", err
 	}
@@ -412,8 +741,22 @@ settings:
   #   2. a task named as the summary  (wo add "Some Task" 2h)
   #   3. a task referenced by id      (wo add 241929955 2h)
   #   4. the toggl_task of the mapping this repository matches
+  #   5. toggl_default_task, for an entry that landed in toggl_default_pid
   toggl_pid_required: {{.PidRequired}}
   toggl_default_pid: {{.DefaultPid}}
+
+  # Some workspaces want a task on every entry. Where that holds, ` + "`wo`" + ` asks
+  # which one rather than letting toggl refuse the entry, and --pick-task asks
+  # even where it does not.
+  toggl_task_required: {{.TaskRequired}}
+
+  # The task new entries fall back to, used only for entries landing in
+  # toggl_default_pid. ` + "`wo init`" + ` inside a repository sets this per checkout.
+  toggl_default_task: 0
+
+  # What to call an entry that has no description, for a workspace that requires
+  # one. Left empty, ` + "`wo`" + ` asks; a run with nowhere to ask says "Untitled".
+  toggl_default_description: ""
 
 
 # Map a project name or a git repository to a toggl project, and optionally to
@@ -441,3 +784,21 @@ templates: []
 # from settings above.
 sources: {}
 `
+
+// localConfigTemplate is the repository overlay: the little of the global
+// config that differs for work done here.
+const localConfigTemplate = `# Working On - settings for this repository, written by ` + "`wo init`" + `
+#
+# Merged over ~/.config/working_on/config.yaml for work done here, so it only
+# needs the keys it changes. It is looked for from the working directory
+# upwards, stopping at the repository root. Credentials are ignored in this
+# file: a checked in overlay cannot change which account you authenticate as.
+
+settings:
+  # {{.ProjectName}}
+  toggl_default_pid: {{.ProjectId}}
+{{if .TaskId}}
+  # {{.TaskName}} - what a new entry books against unless it names a task of
+  # its own, or is given one with --task.
+  toggl_default_task: {{.TaskId}}
+{{end}}`

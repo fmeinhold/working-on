@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -224,5 +225,84 @@ func TestTaskDecodesV9FieldNames(t *testing.T) {
 	}
 	if task.ProjectName != "SW" {
 		t.Errorf("project_name = %q, want SW", task.ProjectName)
+	}
+}
+
+// The endpoint defaults to a page of 151 sorted by name, so a workspace with
+// more projects than that loses the tail without any indication.
+func TestListProjectsFollowsPagination(t *testing.T) {
+	var pages []string
+
+	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		pages = append(pages, r.URL.Query().Get("page"))
+
+		var rows []string
+		if r.URL.Query().Get("page") == "1" {
+			for i := 0; i < projectsPerPage; i++ {
+				rows = append(rows, fmt.Sprintf(`{"id":%d,"name":"p%d","active":true}`, i, i))
+			}
+		} else {
+			rows = append(rows, `{"id":9001,"name":"last","active":true}`)
+		}
+		fmt.Fprintf(w, "[%s]", strings.Join(rows, ","))
+	})
+
+	projects, err := (&WorkspaceClient{client: client}).ListProjects(5)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if projects.Count != projectsPerPage+1 {
+		t.Errorf("got %d projects, want %d", projects.Count, projectsPerPage+1)
+	}
+	if len(pages) != 2 || pages[0] != "1" || pages[1] != "2" {
+		t.Errorf("requested pages %v, want [1 2]", pages)
+	}
+	if last := projects.Projects[projects.Count-1]; last.Name != "last" {
+		t.Errorf("last project = %q, want the one from page 2", last.Name)
+	}
+}
+
+func TestListProjectsWhereAsksForActiveOnly(t *testing.T) {
+	var query url.Values
+
+	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		query = r.URL.Query()
+		fmt.Fprint(w, `[{"id":91,"name":"SW","active":true}]`)
+	})
+
+	_, err := (&WorkspaceClient{client: client}).ListProjectsWhere(5,
+		ProjectQuery{ActiveOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if query.Get("active") != "true" {
+		t.Errorf("active = %q, want true", query.Get("active"))
+	}
+	if query.Get("per_page") != strconv.Itoa(projectsPerPage) {
+		t.Errorf("per_page = %q, want %d", query.Get("per_page"), projectsPerPage)
+	}
+}
+
+// An unfiltered listing must not quietly ask for active projects only.
+func TestListProjectsDoesNotFilter(t *testing.T) {
+	var query url.Values
+
+	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		query = r.URL.Query()
+		fmt.Fprint(w, `[{"id":91,"name":"SW","active":false}]`)
+	})
+
+	projects, err := (&WorkspaceClient{client: client}).ListProjects(5)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if query.Has("active") {
+		t.Errorf("unfiltered listing sent active=%q", query.Get("active"))
+	}
+	if projects.Count != 1 || projects.Projects[0].Active {
+		t.Errorf("archived project was dropped: %+v", projects.Projects)
 	}
 }

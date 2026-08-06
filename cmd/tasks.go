@@ -65,12 +65,19 @@ func loadTasks(source workingon.Source, projectId int) (*simpletable.Table, erro
 }
 
 // taskProjectFilter is the project to narrow a task listing to: none when
-// --all is given, otherwise whichever project this repository maps to.
+// --all is given, otherwise the project an entry started here would land in.
+//
+// That is more than the mapping for this repository - a .workingon.yaml sets
+// the project for a checkout that no mapping names, and listing every task in
+// the workspace there is no use to anyone.
 func taskProjectFilter(cmd *cobra.Command, cfg *workingon.Config) int {
 	if all, _ := cmd.Flags().GetBool("all"); all {
 		return 0
 	}
-	return workingon.FindProjectByGitRepositoryUrl(cfg)
+
+	projectId, _ := workingon.CurrentProject(cfg)
+
+	return projectId
 }
 
 func reportTasks(table *simpletable.Table, projectId int) {
@@ -119,8 +126,10 @@ func NewTasksCommand(cfg *workingon.Config) *cobra.Command {
 		Short: "List the tasks for this project",
 		Long: `List the tasks for this project.
 
-Narrowed to the toggl project this repository maps to, since that is almost
-always the one you want. Use --all for the whole workspace.`,
+Narrowed to the project a new entry would be filed under - the one ` + "`wo projects`" + `
+marks as current, whether that came from a mapping for this repository, a
+.workingon.yaml beside your checkout, or the configured default. Use --all for
+the whole workspace.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			refresh, _ := cmd.Flags().GetBool("refresh")
 			projectId := taskProjectFilter(cmd, cfg)

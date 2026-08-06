@@ -303,3 +303,55 @@ func TestValidateRejectsIncompleteEntries(t *testing.T) {
 		})
 	}
 }
+
+func TestUpdatePutsTheWholeEntry(t *testing.T) {
+	entries, _, _, req := recordRequest(t, func(int) string {
+		return `{"id":42,"workspace_id":7,"description":"named at last","duration":-1}`
+	})
+
+	start := time.Date(2026, 8, 6, 9, 0, 0, 0, time.UTC)
+
+	got, err := entries.Update(&TimeEntry{
+		Id:          42,
+		WorkspaceId: 7,
+		Description: "named at last",
+		Start:       &start,
+		Duration:    RunningDuration,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if req.method != "PUT" {
+		t.Errorf("method = %s, want PUT", req.method)
+	}
+	if req.path != "/workspaces/7/time_entries/42" {
+		t.Errorf("path = %s, want /workspaces/7/time_entries/42", req.path)
+	}
+	if req.body["description"] != "named at last" {
+		t.Errorf("body[description] = %v, want %q", req.body["description"], "named at last")
+	}
+
+	// The entry was running, and saving a description must not end it.
+	if req.body["duration"] != float64(RunningDuration) {
+		t.Errorf("body[duration] = %v, want %d", req.body["duration"], RunningDuration)
+	}
+	if _, stopped := req.body["stop"]; stopped {
+		t.Error("a stop was sent for a running entry")
+	}
+
+	if got.Description != "named at last" {
+		t.Errorf("decoded %+v, want the updated description", got)
+	}
+}
+
+func TestUpdateNeedsAnIdentifiedEntry(t *testing.T) {
+	entries, _, _, _ := recordRequest(t, func(int) string { return `{}` })
+
+	if _, err := entries.Update(&TimeEntry{WorkspaceId: 7}); err == nil {
+		t.Error("expected an error when the entry has no id")
+	}
+	if _, err := entries.Update(&TimeEntry{Id: 42}); err == nil {
+		t.Error("expected an error when the entry has no workspace")
+	}
+}

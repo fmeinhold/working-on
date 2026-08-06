@@ -281,7 +281,7 @@ func tryDate(value string, config *ParseArgsConfig) (time.Time, bool, error) {
 	return time.Time{}, false, nil
 }
 
-// ParseDateFromArg reads the --date flag of `wo what`.
+// ParseDateFromArg reads the date a command was given as an argument.
 func ParseDateFromArg(date string, cfg *workingon.Config) (time.Time, error) {
 	parsed, matched, err := tryDate(date, newParseArgsConfig(cfg))
 	if err != nil {

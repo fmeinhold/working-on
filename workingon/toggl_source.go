@@ -46,8 +46,13 @@ func (t *TogglSource) GetTasks() ([]Task, error) {
 	return tasks, nil
 }
 
-func (t *TogglSource) GetProjects() ([]Project, error) {
-	projectList, err := t.client.WorkspaceClient.ListProjects(t.wid)
+func (t *TogglSource) GetProjects(includeArchived bool) ([]Project, error) {
+	if t.client == nil {
+		return nil, fmt.Errorf("toggl source is not configured")
+	}
+
+	projectList, err := t.client.WorkspaceClient.ListProjectsWhere(t.wid,
+		toggl.ProjectQuery{ActiveOnly: !includeArchived})
 	if err != nil {
 		return nil, err
 	}
@@ -55,8 +60,9 @@ func (t *TogglSource) GetProjects() ([]Project, error) {
 	var projects []Project
 	for _, project := range projectList.Projects {
 		projects = append(projects, Project{
-			Key:  strconv.Itoa(project.Id),
-			Name: project.Name,
+			Key:      strconv.Itoa(project.Id),
+			Name:     project.Name,
+			Archived: !project.Active,
 		})
 	}
 
@@ -138,6 +144,9 @@ func (t *TogglSource) GetTask(key string) (*Task, error) {
 	tid, err := strconv.Atoi(key)
 	if err != nil {
 		return nil, err
+	}
+	if t.cache == nil {
+		return nil, fmt.Errorf("%w: task %s", ErrTaskNotFound, key)
 	}
 	// v9 addresses tasks under their project, so an id-only lookup has to go
 	// through the workspace listing. The cache keeps that off the hot path.

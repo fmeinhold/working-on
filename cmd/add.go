@@ -89,6 +89,11 @@ or by description/key, start time and duration`,
 					return err
 				}
 
+				pickTask, err := cmd.Flags().GetBool("pick-task")
+				if err != nil {
+					return err
+				}
+
 				timeEntry, err := workingon.AddOrStart(cfg, workingon.EntryRequest{
 					Wid:          wid,
 					Project:      project,
@@ -99,6 +104,9 @@ or by description/key, start time and duration`,
 					Duration:     duration,
 					TemplateArgs: templateArgs,
 					DryRun:       dryRun,
+					Describe:     describer(cfg),
+					ChooseTask:   taskChooser(interactive()),
+					PickTask:     pickTask,
 				})
 				if err != nil {
 					return err
@@ -113,7 +121,10 @@ or by description/key, start time and duration`,
 	// Flags
 	addCommand.Flags().StringP("stop", "s", "", "Stop Time")
 	addCommand.Flags().StringP("project", "p", viper.GetString("TOGGL_PROJECT"), "Set project")
-	addCommand.Flags().String("task", "", "Set the toggl task, by id or by name")
+	addCommand.Flags().String("task", viper.GetString("TOGGL_TASK"),
+		"Set the toggl task, by id or by name")
+	addCommand.Flags().Bool("pick-task", false,
+		"Choose the task from this project's tasks, even where the workspace does not require one")
 	addCommand.Flags().BoolVarP(&dryRun, "dry", "d", false, "Do not create anything in toggl")
 	addCommand.Flags().BoolP("append", "a", false, "Append to last time entry")
 	addCommand.Flags().BoolP("fuzzy", "f", false, "Add some fuzziness to the start and stop time")

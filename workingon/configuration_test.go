@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 const globalConfig = `
@@ -313,5 +314,37 @@ func TestDeleteNestedPrunesEmptyParents(t *testing.T) {
 
 	if _, present := tree["settings"]; present {
 		t.Errorf("settings survived as %#v, want it pruned", tree["settings"])
+	}
+}
+
+// A config with no location must not silently fall back to UTC: times are read
+// and displayed in it, so UTC would quietly shift everything.
+func TestInitConfigDefaultsLocationToTheSystemZone(t *testing.T) {
+	withConfigHome(t, "settings:\n  date_time_layout: \"2.1.2006 15:04\"\n")
+
+	cfg, err := InitConfig()
+	if err != nil {
+		t.Fatalf("InitConfig: %v", err)
+	}
+
+	// The offset is what matters: a zero Location also has a name, but reports
+	// UTC, which is the failure this guards against.
+	moment := time.Date(2026, 8, 6, 19, 12, 0, 0, time.UTC)
+	_, want := moment.In(time.Local).Zone()
+	if _, got := moment.In(&cfg.Settings.Location).Zone(); got != want {
+		t.Errorf("offset = %d, want the system zone's %d", got, want)
+	}
+}
+
+func TestInitConfigKeepsAConfiguredLocation(t *testing.T) {
+	withConfigHome(t, "settings:\n  location: America/New_York\n")
+
+	cfg, err := InitConfig()
+	if err != nil {
+		t.Fatalf("InitConfig: %v", err)
+	}
+
+	if got := cfg.Settings.Location.String(); got != "America/New_York" {
+		t.Errorf("location = %q, want America/New_York", got)
 	}
 }

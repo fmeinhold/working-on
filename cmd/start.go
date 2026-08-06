@@ -46,8 +46,19 @@ func NewStartCommand(cfg *workingon.Config) *cobra.Command {
 				}
 			}
 
+			pickTask, err := cmd.Flags().GetBool("pick-task")
+			if err != nil {
+				return err
+			}
+
 			if cont {
-				timeEntry, err := workingon.ContinueLast(cfg, start, dry)
+				timeEntry, err := workingon.ContinueLast(cfg, workingon.EntryRequest{
+					Start:      start,
+					DryRun:     dry,
+					Describe:   describer(cfg),
+					ChooseTask: taskChooser(interactive()),
+					PickTask:   pickTask,
+				})
 				if err != nil {
 					return err
 				}
@@ -81,6 +92,9 @@ func NewStartCommand(cfg *workingon.Config) *cobra.Command {
 				TemplateArgs: templateArgs,
 				Running:      true,
 				DryRun:       dry,
+				Describe:     describer(cfg),
+				ChooseTask:   taskChooser(interactive()),
+				PickTask:     pickTask,
 			})
 			if err != nil {
 				return err
@@ -96,7 +110,10 @@ func NewStartCommand(cfg *workingon.Config) *cobra.Command {
 	startCommand.Flags().BoolVarP(&cont, "continue", "c", false, "Continue last task")
 	startCommand.Flags().BoolVarP(&dry, "dry", "d", false, "Do not create anything in toggl")
 	startCommand.Flags().StringVarP(&project, "project", "p", viper.GetString("TOGGL_PROJECT"), "Set project")
-	startCommand.Flags().String("task", "", "Set the toggl task, by id or by name")
+	startCommand.Flags().String("task", viper.GetString("TOGGL_TASK"),
+		"Set the toggl task, by id or by name")
+	startCommand.Flags().Bool("pick-task", false,
+		"Choose the task from this project's tasks, even where the workspace does not require one")
 	startCommand.Flags().StringToStringP("templateArgs", "t", nil, "List of named template args")
 	startCommand.Flags().IntP("wid", "w", cfg.Settings.ToggleWid, "Toggle track workspace id")
 
