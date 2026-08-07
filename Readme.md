@@ -29,6 +29,22 @@ puts it somewhere that does not.
 
 `wo version` tells you which build you are on.
 
+## Completion
+
+The homebrew install sets up completion for bash, zsh and fish on its own - the cask runs the binary it just
+installed, so the completions describe the version you actually have.
+
+Built from source, `wo completion <shell>` writes the script and you put it where your shell looks:
+
+```
+wo completion fish > ~/.config/fish/completions/wo.fish
+wo completion zsh > "${fpath[1]}/_wo"
+wo completion bash > /usr/local/etc/bash_completion.d/wo
+```
+
+`wo completion --help` covers the rest, powershell included. It completes commands and flags, and needs no config
+to do it, so it works before `wo init` has run.
+
 
 ## Setup
 

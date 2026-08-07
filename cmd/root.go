@@ -71,11 +71,23 @@ func Execute() {
 	}
 }
 
+// configlessCommands run before there is anything to configure. `init` writes
+// the config, and the rest only describe the binary - a shell asking what to
+// complete, or someone asking what any of this does, should not be answered
+// with a complaint about a file they have not written yet.
+var configlessCommands = map[string]bool{
+	"init":                          true,
+	"version":                       true,
+	"help":                          true,
+	"completion":                    true,
+	cobra.ShellCompRequestCmd:       true,
+	cobra.ShellCompNoDescRequestCmd: true,
+}
+
 // needsConfig reports whether a command cannot run without a config file.
 func needsConfig(cmd *cobra.Command) bool {
 	for c := cmd; c != nil; c = c.Parent() {
-		switch c.Name() {
-		case "init", "version":
+		if configlessCommands[c.Name()] {
 			return false
 		}
 	}

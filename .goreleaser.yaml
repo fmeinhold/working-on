@@ -75,6 +75,12 @@ homebrew_casks:
     commit_msg_template: "wo: update to {{ .Tag }}"
     caveats: |
       Run `wo init` to set up your toggl track API token and config.
+    # Run on the installed binary rather than shipped as files, so the
+    # completions always describe the version that was actually installed.
+    generate_completions_from_executable:
+      args: [completion]
+      shell_parameter_format: cobra
+      shells: [bash, zsh, fish]
     # The binaries are not signed or notarized, so macOS would otherwise refuse
     # to run them with "wo is damaged and cannot be opened".
     hooks:
