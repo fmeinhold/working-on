@@ -17,14 +17,16 @@ import (
 // stubSource stands in for a real source so these tests never touch the network.
 // It counts lookups, so tests can assert a source was never consulted.
 type stubSource struct {
-	name    string
-	tasks   map[string]*Task
-	names   map[string]*Task
-	list    []Task
-	handles func(string) bool
-	err     error
-	calls   int
-	lookups int
+	name        string
+	tasks       map[string]*Task
+	names       map[string]*Task
+	list        []Task
+	projects    []Project
+	projectsErr error
+	handles     func(string) bool
+	err         error
+	calls       int
+	lookups     int
 }
 
 // LookupTaskByName and FindTaskByName make the stub a TaskNamer, matching a
@@ -49,10 +51,26 @@ func (s *stubSource) FindTaskByName(name string, projectId int) (*Task, error) {
 	return nil, fmt.Errorf("%w: no task named %q", ErrTaskNotFound, name)
 }
 
-func (s *stubSource) Configure(*Config) error             { return nil }
-func (s *stubSource) GetName() string                     { return s.name }
-func (s *stubSource) GetTasks() ([]Task, error)           { return s.list, s.err }
-func (s *stubSource) GetProjects(bool) ([]Project, error) { return nil, nil }
+func (s *stubSource) Configure(*Config) error   { return nil }
+func (s *stubSource) GetName() string           { return s.name }
+func (s *stubSource) GetTasks() ([]Task, error) { return s.list, s.err }
+
+// GetProjects mirrors a real source in leaving archived projects out unless
+// they are asked for, so name resolution can be tested against both.
+func (s *stubSource) GetProjects(includeArchived bool) ([]Project, error) {
+	if s.projectsErr != nil {
+		return nil, s.projectsErr
+	}
+
+	var projects []Project
+	for _, project := range s.projects {
+		if project.Archived && !includeArchived {
+			continue
+		}
+		projects = append(projects, project)
+	}
+	return projects, nil
+}
 
 func (s *stubSource) Handles(key string) bool {
 	if s.handles != nil {
@@ -90,7 +108,7 @@ func withSources(t *testing.T, cfg Config, sources ...Source) {
 }
 
 // A toggl-native task knows its own ids, so an entry built from one must link
-// to the task and land on its project without needing a config mapping.
+// to the task and land on its project without anything on the command line.
 func TestNewTimeEntryLinksTogglTask(t *testing.T) {
 	togglTask := &Task{
 		Key:       "30422198",
@@ -119,19 +137,16 @@ func TestNewTimeEntryLinksTogglTask(t *testing.T) {
 	}
 }
 
-// A task from a non-toggl source has no toggl ids of its own and resolves
-// through the configured mapping, keeping its key in the description.
-func TestNewTimeEntryMapsNonTogglTask(t *testing.T) {
+// A task from a non-toggl source names no toggl project of its own, so the
+// entry falls back to the default and keeps its key in the description.
+func TestNewTimeEntryFilesANonTogglTaskUnderTheDefaultProject(t *testing.T) {
 	trackerTask := &Task{
 		Key:     "MOET-297",
 		Summary: "Fix the thing",
 		Project: Project{Key: "MOET", Name: "Moet"},
 	}
 
-	cfg := Config{
-		Settings: Settings{TogglePidRequired: true},
-		Projects: []ProjectMapping{{Name: "MOET", TogglePid: 164014679}},
-	}
+	cfg := Config{Settings: Settings{TogglePidRequired: true, ToggleDefaultPid: 164014679}}
 	withSources(t, cfg, &stubSource{name: "tracker", tasks: map[string]*Task{"MOET-297": trackerTask}})
 
 	entry, err := NewTimeEntry(&cfg, "", 5, "MOET-297", nil, "")
@@ -140,7 +155,7 @@ func TestNewTimeEntryMapsNonTogglTask(t *testing.T) {
 	}
 
 	if entry.ProjectId != 164014679 {
-		t.Errorf("project_id = %d, want 164014679 from the mapping", entry.ProjectId)
+		t.Errorf("project_id = %d, want the default 164014679", entry.ProjectId)
 	}
 	if entry.TaskId != 0 {
 		t.Errorf("task_id = %d, want 0 for a non-toggl task", entry.TaskId)
@@ -150,8 +165,10 @@ func TestNewTimeEntryMapsNonTogglTask(t *testing.T) {
 	}
 }
 
-// An explicit --project always wins over whatever the task says.
-func TestNewTimeEntryProjectFlagOverridesTask(t *testing.T) {
+// A task settles the project even against an explicit --project: it belongs to
+// exactly one, and toggl refuses an entry that files it under another, so of
+// the two only the task can be honoured.
+func TestNewTimeEntryTaskOverridesTheProjectFlag(t *testing.T) {
 	togglTask := &Task{
 		Key:       "1",
 		Summary:   "Testing",
@@ -166,8 +183,43 @@ func TestNewTimeEntryProjectFlagOverridesTask(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if entry.ProjectId != 158249179 {
+		t.Errorf("project_id = %d, want the task's own 158249179", entry.ProjectId)
+	}
+}
+
+// With no task to settle it, an explicit --project stands.
+func TestNewTimeEntryProjectFlagStandsWithoutATask(t *testing.T) {
+	cfg := Config{Settings: Settings{TogglePidRequired: true, ToggleDefaultPid: 91210706}}
+	withSources(t, cfg, namingSource())
+
+	entry, err := NewTimeEntry(&cfg, "999", 5, "fixing the parser", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if entry.ProjectId != 999 {
 		t.Errorf("project_id = %d, want the flag value 999", entry.ProjectId)
+	}
+}
+
+// --task by id is the case that started this: a checkout with its own default
+// project must not drag a task out of the project it lives in.
+func TestNewTimeEntryTaskFlagByIdBringsItsOwnProject(t *testing.T) {
+	cfg := Config{Settings: Settings{TogglePidRequired: true, ToggleDefaultPid: 164014679}}
+	source := namingSource()
+	source.tasks = map[string]*Task{"241929955": atdConference()}
+	withSources(t, cfg, source)
+
+	entry, err := NewTimeEntry(&cfg, "", 5, "some work", nil, "241929955")
+	if err != nil {
+		t.Fatalf("NewTimeEntry: %v", err)
+	}
+
+	if entry.ProjectId != 91210706 {
+		t.Errorf("project_id = %d, want the task's own 91210706", entry.ProjectId)
+	}
+	if entry.TaskId != 241929955 {
+		t.Errorf("task_id = %d, want the flag's 241929955", entry.TaskId)
 	}
 }
 
@@ -234,6 +286,189 @@ func TestNewTimeEntryPrefersATemplateOverAFailedLookup(t *testing.T) {
 	}
 	if entry.Description != "Daily Standup" {
 		t.Errorf("description = %q, want the template's", entry.Description)
+	}
+}
+
+// A placeholder --templateArgs left open is asked about rather than booked as
+// <no value>.
+func TestNewTimeEntryAsksForAnOpenTemplateArgument(t *testing.T) {
+	cfg := Config{
+		Settings:  Settings{ToggleDefaultPid: 164014679},
+		Templates: []TemplateConfig{{Alias: "call", Description: "Call with {{.caller}}"}},
+	}
+	withSources(t, cfg, namingSource())
+
+	entry, err := newTimeEntry(&cfg, EntryRequest{Wid: 5, SummaryOrKey: "call",
+		AskTemplateArg: func(alias string, names []string) (map[string]string, error) {
+			return map[string]string{"caller": "Sam"}, nil
+		}})
+	if err != nil {
+		t.Fatalf("newTimeEntry: %v", err)
+	}
+
+	if entry.Description != "Call with Sam" {
+		t.Errorf("description = %q, want the answer filled in", entry.Description)
+	}
+}
+
+// An entry that is not booked through a template has nothing to ask about.
+func TestNewTimeEntryDoesNotAskAboutFreeText(t *testing.T) {
+	cfg := Config{
+		Settings:  Settings{ToggleDefaultPid: 164014679},
+		Templates: []TemplateConfig{{Alias: "call", Description: "Call with {{.caller}}"}},
+	}
+	withSources(t, cfg, namingSource())
+
+	_, err := newTimeEntry(&cfg, EntryRequest{Wid: 5, SummaryOrKey: "fixing the parser",
+		AskTemplateArg: func(string, []string) (map[string]string, error) {
+			t.Error("asked about a template that was never used")
+			return nil, nil
+		}})
+	if err != nil {
+		t.Fatalf("newTimeEntry: %v", err)
+	}
+}
+
+// A template that pins a project is the more specific answer, so it wins over
+// the configured default.
+func TestNewTimeEntryUsesTheTemplatesProject(t *testing.T) {
+	cfg := Config{
+		Settings: Settings{TogglePidRequired: true, ToggleDefaultPid: 164014679},
+		Templates: []TemplateConfig{{Alias: "ds", Description: "Daily Standup",
+			TogglPid: 91210706, TogglTask: 241929955}},
+	}
+	withSources(t, cfg, namingSource())
+
+	entry, err := NewTimeEntry(&cfg, "", 5, "ds", nil, "")
+	if err != nil {
+		t.Fatalf("NewTimeEntry: %v", err)
+	}
+
+	if entry.ProjectId != 91210706 {
+		t.Errorf("project_id = %d, want the template's 91210706", entry.ProjectId)
+	}
+	if entry.TaskId != 241929955 {
+		t.Errorf("task_id = %d, want the template's 241929955", entry.TaskId)
+	}
+}
+
+// A template that pins a task but no project belongs in that task's project.
+//
+// A checkout with its own toggl_default_pid would otherwise file the entry
+// under a project the task is not in, and toggl refuses that outright.
+func TestNewTimeEntryTemplateTaskBringsItsOwnProject(t *testing.T) {
+	cfg := Config{
+		Settings:  Settings{TogglePidRequired: true, ToggleDefaultPid: 164014679},
+		Templates: []TemplateConfig{{Alias: "ds", Description: "Daily Standup", TogglTask: 241929955}},
+	}
+	source := namingSource()
+	source.tasks = map[string]*Task{"241929955": atdConference()}
+	withSources(t, cfg, source)
+
+	entry, err := NewTimeEntry(&cfg, "", 5, "ds", nil, "")
+	if err != nil {
+		t.Fatalf("NewTimeEntry: %v", err)
+	}
+
+	if entry.ProjectId != 91210706 {
+		t.Errorf("project_id = %d, want the task's own 91210706 rather than the default", entry.ProjectId)
+	}
+	if entry.TaskId != 241929955 {
+		t.Errorf("task_id = %d, want the template's 241929955", entry.TaskId)
+	}
+}
+
+// A template naming a toggl_pid its toggl_task does not live in contradicts
+// itself. The task wins there too, since it is the half toggl can accept.
+func TestNewTimeEntryTemplateTaskBeatsAContradictoryPid(t *testing.T) {
+	cfg := Config{
+		Settings: Settings{TogglePidRequired: true, ToggleDefaultPid: 164014679},
+		Templates: []TemplateConfig{{Alias: "ds", Description: "Daily Standup",
+			TogglPid: 77918943, TogglTask: 241929955}},
+	}
+	source := namingSource()
+	source.tasks = map[string]*Task{"241929955": atdConference()}
+	withSources(t, cfg, source)
+
+	entry, err := NewTimeEntry(&cfg, "", 5, "ds", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry.ProjectId != 91210706 {
+		t.Errorf("project_id = %d, want the task's own 91210706", entry.ProjectId)
+	}
+}
+
+// A template that pins only a project keeps it - there is no task to say
+// otherwise.
+func TestNewTimeEntryTemplatePidStandsWithoutATask(t *testing.T) {
+	cfg := Config{
+		Settings:  Settings{TogglePidRequired: true, ToggleDefaultPid: 164014679},
+		Templates: []TemplateConfig{{Alias: "ds", Description: "Daily Standup", TogglPid: 77918943}},
+	}
+	withSources(t, cfg, namingSource())
+
+	entry, err := NewTimeEntry(&cfg, "", 5, "ds", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry.ProjectId != 77918943 {
+		t.Errorf("project_id = %d, want the template's own 77918943", entry.ProjectId)
+	}
+}
+
+// A task that cannot be looked up leaves the entry where it would have been
+// before anyone asked, rather than failing a booking over it.
+func TestNewTimeEntryTemplateTaskFallsBackWhenTheLookupFails(t *testing.T) {
+	cfg := Config{
+		Settings:  Settings{TogglePidRequired: true, ToggleDefaultPid: 164014679},
+		Templates: []TemplateConfig{{Alias: "ds", Description: "Daily Standup", TogglTask: 241929955}},
+	}
+	// namingSource has no tasks to find, so the lookup comes back empty.
+	withSources(t, cfg, namingSource())
+
+	entry, err := NewTimeEntry(&cfg, "", 5, "ds", nil, "")
+	if err != nil {
+		t.Fatalf("NewTimeEntry: %v", err)
+	}
+	if entry.ProjectId != 164014679 {
+		t.Errorf("project_id = %d, want the default it always fell back to", entry.ProjectId)
+	}
+}
+
+// An explicit --project wins over a template's project, exactly as it does
+// over the project a resolved task belongs to.
+func TestNewTimeEntryProjectFlagOverridesTheTemplate(t *testing.T) {
+	cfg := Config{
+		Settings:  Settings{TogglePidRequired: true},
+		Templates: []TemplateConfig{{Alias: "ds", Description: "Daily Standup", TogglPid: 91210706}},
+	}
+	withSources(t, cfg, namingSource())
+
+	entry, err := NewTimeEntry(&cfg, "77918943", 5, "ds", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry.ProjectId != 77918943 {
+		t.Errorf("project_id = %d, want the flag's 77918943", entry.ProjectId)
+	}
+}
+
+// An explicit --task wins over a template's task.
+func TestNewTimeEntryTaskFlagOverridesTheTemplate(t *testing.T) {
+	cfg := Config{
+		Settings: Settings{TogglePidRequired: true},
+		Templates: []TemplateConfig{{Alias: "ds", Description: "Daily Standup",
+			TogglPid: 91210706, TogglTask: 241929955}},
+	}
+	withSources(t, cfg, namingSource())
+
+	entry, err := NewTimeEntry(&cfg, "", 5, "ds", nil, "77918943")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry.TaskId != 77918943 {
+		t.Errorf("task_id = %d, want the flag's 77918943", entry.TaskId)
 	}
 }
 
@@ -326,8 +561,8 @@ func TestNewTimeEntrySetsWorkspaceAndCreatedWith(t *testing.T) {
 	}
 }
 
-// atdConference is a task in project 91210706, the shape this repository's
-// mapping resolves to.
+// atdConference is a task in project 91210706, the project these tests treat
+// as the one work is filed under.
 func atdConference() *Task {
 	return &Task{
 		Key:       "241929955",
@@ -339,9 +574,10 @@ func atdConference() *Task {
 
 func namingSource() *stubSource {
 	return &stubSource{
-		name:    "toggl",
-		handles: numericKey,
-		names:   map[string]*Task{"atd conference": atdConference()},
+		name:     "toggl",
+		handles:  numericKey,
+		names:    map[string]*Task{"atd conference": atdConference()},
+		projects: []Project{{Key: "91210706", Name: "SW Biz Dev", TogglProject: 91210706}},
 	}
 }
 
@@ -460,61 +696,122 @@ func TestNewTimeEntryTaskFlagReportsAnUnknownName(t *testing.T) {
 	}
 }
 
-// A mapping may pin a task, so work in that repository lands on it without
-// anything extra on the command line.
-func TestNewTimeEntryUsesTheMappingsTask(t *testing.T) {
-	cfg := Config{
-		Settings: Settings{TogglePidRequired: true},
-		Projects: []ProjectMapping{{Name: "SW", TogglePid: 91210706, TogglTask: 241929955}},
-	}
+// A --project that is not a number is the name of a project in the workspace.
+func TestNewTimeEntryResolvesTheProjectFlagByName(t *testing.T) {
+	cfg := Config{Settings: Settings{TogglePidRequired: true}}
 	withSources(t, cfg, namingSource())
 
-	entry, err := NewTimeEntry(&cfg, "SW", 5, "fixing the parser", nil, "")
+	entry, err := NewTimeEntry(&cfg, "SW Biz Dev", 5, "fixing the parser", nil, "")
 	if err != nil {
 		t.Fatalf("NewTimeEntry: %v", err)
 	}
 
 	if entry.ProjectId != 91210706 {
-		t.Errorf("project_id = %d, want the mapping's", entry.ProjectId)
-	}
-	if entry.TaskId != 241929955 {
-		t.Errorf("task_id = %d, want the mapping's task", entry.TaskId)
+		t.Errorf("project_id = %d, want the named project's 91210706", entry.ProjectId)
 	}
 }
 
-// An explicit --task beats the one the mapping pins.
-func TestNewTimeEntryTaskFlagOverridesTheMapping(t *testing.T) {
-	cfg := Config{
-		Settings: Settings{TogglePidRequired: true},
-		Projects: []ProjectMapping{{Name: "SW", TogglePid: 91210706, TogglTask: 241929955}},
-	}
+// Project names are matched the way task names are, so the casing you happen
+// to type is not the thing that decides whether an entry files.
+func TestNewTimeEntryMatchesAProjectNameCaseInsensitively(t *testing.T) {
+	cfg := Config{Settings: Settings{TogglePidRequired: true}}
 	withSources(t, cfg, namingSource())
 
-	entry, err := NewTimeEntry(&cfg, "SW", 5, "fixing the parser", nil, "77918943")
+	entry, err := NewTimeEntry(&cfg, "sw biz dev", 5, "fixing the parser", nil, "")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("NewTimeEntry: %v", err)
 	}
-	if entry.TaskId != 77918943 {
-		t.Errorf("task_id = %d, want the flag's 77918943", entry.TaskId)
+
+	if entry.ProjectId != 91210706 {
+		t.Errorf("project_id = %d, want 91210706", entry.ProjectId)
 	}
 }
 
-// A task resolved from the summary keeps its own task, not the mapping's.
-func TestNewTimeEntryResolvedTaskBeatsTheMapping(t *testing.T) {
-	cfg := Config{
-		Settings: Settings{TogglePidRequired: true},
-		Projects: []ProjectMapping{{Name: "SW", TogglePid: 91210706, TogglTask: 77918943}},
+// A --project naming nothing is an error, not a quiet fall back to the
+// default - that would file the time somewhere it was never meant to go.
+func TestNewTimeEntryReportsAnUnknownProjectName(t *testing.T) {
+	cfg := Config{Settings: Settings{TogglePidRequired: true, ToggleDefaultPid: 91210706}}
+	withSources(t, cfg, namingSource())
+
+	_, err := NewTimeEntry(&cfg, "No Such Project", 5, "fixing the parser", nil, "")
+	if !errors.Is(err, ErrProjectNotFound) {
+		t.Fatalf("err = %v, want ErrProjectNotFound", err)
 	}
+}
+
+// A source that could not be reached has not said the project is missing, and
+// reporting it as missing would send someone hunting for a typo that is not
+// there.
+func TestNewTimeEntryReportsAnUnreachableSourceRatherThanAMissingProject(t *testing.T) {
+	cfg := Config{Settings: Settings{TogglePidRequired: true}}
 	source := namingSource()
-	source.tasks = map[string]*Task{"241929955": atdConference()}
+	source.projectsErr = errors.New("connection refused")
 	withSources(t, cfg, source)
 
-	entry, err := NewTimeEntry(&cfg, "SW", 5, "241929955", nil, "")
-	if err != nil {
-		t.Fatal(err)
+	_, err := NewTimeEntry(&cfg, "SW Biz Dev", 5, "fixing the parser", nil, "")
+	if err == nil {
+		t.Fatal("want an error when the projects could not be listed")
 	}
-	if entry.TaskId != 241929955 {
-		t.Errorf("task_id = %d, want the resolved task", entry.TaskId)
+	if errors.Is(err, ErrProjectNotFound) {
+		t.Errorf("err = %v, want the failure reported rather than a missing project", err)
+	}
+	if !strings.Contains(err.Error(), "connection refused") {
+		t.Errorf("err = %v, want the source's reason carried through", err)
+	}
+}
+
+// A name two projects answer to cannot be resolved by guessing.
+func TestNewTimeEntryReportsAnAmbiguousProjectName(t *testing.T) {
+	cfg := Config{Settings: Settings{TogglePidRequired: true}}
+	source := namingSource()
+	source.projects = append(source.projects,
+		Project{Key: "77918943", Name: "SW Biz Dev", TogglProject: 77918943})
+	withSources(t, cfg, source)
+
+	_, err := NewTimeEntry(&cfg, "SW Biz Dev", 5, "fixing the parser", nil, "")
+	if !errors.Is(err, ErrAmbiguousProject) {
+		t.Fatalf("err = %v, want ErrAmbiguousProject", err)
+	}
+	// Both ids belong in the message, since one of them is the answer.
+	if !strings.Contains(err.Error(), "77918943") || !strings.Contains(err.Error(), "91210706") {
+		t.Errorf("err = %v, want both project ids named", err)
+	}
+}
+
+// A name is reused after a project is closed far more often than someone means
+// the closed one, so an active project wins the collision.
+func TestNewTimeEntryPrefersAnActiveProjectOverAnArchivedNamesake(t *testing.T) {
+	cfg := Config{Settings: Settings{TogglePidRequired: true}}
+	source := namingSource()
+	source.projects = append(source.projects,
+		Project{Key: "77918943", Name: "SW Biz Dev", TogglProject: 77918943, Archived: true})
+	withSources(t, cfg, source)
+
+	entry, err := NewTimeEntry(&cfg, "SW Biz Dev", 5, "fixing the parser", nil, "")
+	if err != nil {
+		t.Fatalf("NewTimeEntry: %v", err)
+	}
+	if entry.ProjectId != 91210706 {
+		t.Errorf("project_id = %d, want the active project", entry.ProjectId)
+	}
+}
+
+// An archived project is still reachable by name when nothing active answers
+// to it - booking against it is toggl's call to refuse, not ours.
+func TestNewTimeEntryResolvesAnArchivedProjectByName(t *testing.T) {
+	cfg := Config{Settings: Settings{TogglePidRequired: true}}
+	source := namingSource()
+	source.projects = []Project{
+		{Key: "77918943", Name: "Old Work", TogglProject: 77918943, Archived: true},
+	}
+	withSources(t, cfg, source)
+
+	entry, err := NewTimeEntry(&cfg, "Old Work", 5, "fixing the parser", nil, "")
+	if err != nil {
+		t.Fatalf("NewTimeEntry: %v", err)
+	}
+	if entry.ProjectId != 77918943 {
+		t.Errorf("project_id = %d, want the archived project", entry.ProjectId)
 	}
 }
 
@@ -582,25 +879,22 @@ func TestNewTimeEntryTaskFlagOverridesTheDefaultTask(t *testing.T) {
 	}
 }
 
-// A mapping's own task is the more specific answer, so it wins over the
-// default.
-func TestNewTimeEntryMappingTaskBeatsTheDefaultTask(t *testing.T) {
-	cfg := Config{
-		Settings: Settings{
-			TogglePidRequired: true,
-			ToggleDefaultPid:  91210706,
-			ToggleDefaultTask: 241929955,
-		},
-		Projects: []ProjectMapping{{Name: "SW", TogglePid: 91210706, TogglTask: 77918943}},
-	}
+// A --project naming the default project by name lands in it, so the default
+// task applies exactly as it would have without the flag.
+func TestNewTimeEntryDefaultTaskAppliesToTheProjectNamedByName(t *testing.T) {
+	cfg := Config{Settings: Settings{
+		TogglePidRequired: true,
+		ToggleDefaultPid:  91210706,
+		ToggleDefaultTask: 241929955,
+	}}
 	withSources(t, cfg, namingSource())
 
-	entry, err := NewTimeEntry(&cfg, "SW", 5, "fixing the parser", nil, "")
+	entry, err := NewTimeEntry(&cfg, "SW Biz Dev", 5, "fixing the parser", nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if entry.TaskId != 77918943 {
-		t.Errorf("task_id = %d, want the mapping's task", entry.TaskId)
+	if entry.TaskId != 241929955 {
+		t.Errorf("task_id = %d, want the default task", entry.TaskId)
 	}
 }
 
@@ -1148,7 +1442,7 @@ func TestRequireTaskReportsWhenItCannotBeAnswered(t *testing.T) {
 }
 
 // --pick-task is only ever passed to be asked, so an inherited task - from a
-// mapping, a default, or the entry being continued - is not an answer.
+// default, or from the entry being continued - is not an answer.
 func TestRequireTaskPickOverridesAnInheritedTask(t *testing.T) {
 	cfg := Config{}
 	withSources(t, cfg, projectTasks())

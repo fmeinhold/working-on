@@ -60,9 +60,10 @@ func (t *TogglSource) GetProjects(includeArchived bool) ([]Project, error) {
 	var projects []Project
 	for _, project := range projectList.Projects {
 		projects = append(projects, Project{
-			Key:      strconv.Itoa(project.Id),
-			Name:     project.Name,
-			Archived: !project.Active,
+			Key:          strconv.Itoa(project.Id),
+			Name:         project.Name,
+			Archived:     !project.Active,
+			TogglProject: project.Id,
 		})
 	}
 

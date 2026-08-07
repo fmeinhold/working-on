@@ -141,3 +141,34 @@ func TestTaskChooserIsAbsentWithoutATerminal(t *testing.T) {
 		t.Error("got no chooser for an interactive run")
 	}
 }
+
+func TestTemplateArgAskerAsksForEachPlaceholder(t *testing.T) {
+	out := &bytes.Buffer{}
+	ask := askTemplateArgsFrom(strings.NewReader("a review\nSam\n"), out)
+
+	answers, err := ask("call", []string{"what", "caller"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if answers["what"] != "a review" || answers["caller"] != "Sam" {
+		t.Errorf("answers = %v, want each question answered in turn", answers)
+	}
+	if !strings.Contains(out.String(), `Template "call" asks for 2 arguments`) {
+		t.Errorf("the questions did not say what was asking:\n%s", out)
+	}
+	if !strings.Contains(out.String(), "caller: ") {
+		t.Errorf("a placeholder was not asked for by name:\n%s", out)
+	}
+}
+
+// With nobody to ask there is no asker at all, so a scripted run books the
+// entry with the placeholder as it stands rather than waiting on an answer.
+func TestTemplateArgAskerIsAbsentWithoutATerminal(t *testing.T) {
+	if templateArgAsker(false) != nil {
+		t.Error("got an asker for a run with nobody to answer it")
+	}
+	if templateArgAsker(true) == nil {
+		t.Error("got no asker for an interactive run")
+	}
+}

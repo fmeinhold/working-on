@@ -27,19 +27,23 @@ settings:
   toggl_wid: 0
 
   # A time entry's project is resolved in this order:
-  #   1. the --project flag
-  #   2. the project the task belongs to
-  #   3. a mapping below matching this repository's git remote
-  #   4. toggl_default_pid
+  #   1. the project the task belongs to, for an entry that ended up with one
+  #   2. the --project flag, which is either a toggl project id or the name of
+  #      a project in this workspace  (wo add --project "SW Biz Dev" ...)
+  #   3. toggl_default_pid
+  # The task leads because it belongs to exactly one project, and toggl refuses
+  # an entry filing it under another - so where the two disagree, only the task
+  # can be honoured. An entry with no task takes the rest as written.
+  #
   # If none of those produce one, toggl_pid_required decides whether that is
-  # an error or an entry with no project.
+  # an error or an entry with no project. A --project naming a project the
+  # workspace does not have is an error rather than a fall back to the default.
   #
   # Its task, in this order:
   #   1. the --task flag, by id or by name
   #   2. a task named as the summary  (wo add "ATD Conference" 2h)
   #   3. a task referenced by id      (wo add 241929955 2h)
-  #   4. the toggl_task of the mapping this repository matches
-  #   5. toggl_default_task, for an entry that landed in toggl_default_pid
+  #   4. toggl_default_task, for an entry that landed in toggl_default_pid
   # Task names are matched exactly, case insensitively, and only within the
   # project already resolved - so a description is never mistaken for a task.
   toggl_pid_required: true
@@ -63,34 +67,52 @@ settings:
   toggl_default_description: ""
 
 
-# Mapping a project name or a git repository to a toggl project, and
-# optionally to a task within it.
-#
-# The git entry is matched against `git config --get remote.origin.url`, so
-# work done inside that checkout is filed automatically. The name is what you
-# pass to --project.
-mappings:
-  - name: "EXAMPLE"
-    toggl_pid: 12345678
-    toggl_task: 87654321 # optional
-    git: git@github.com:you/example.git
-
-
 # Time entry templates, addressed by their alias: `wo add ds` books the daily
 # standup. Descriptions are Go templates, filled from --templateArgs:
 #
 #   wo add call -t caller=Sam
 #
 # see https://pkg.go.dev/text/template
+#
+# A placeholder no argument answers for is asked about before the entry is
+# booked. A run with nobody to ask - a script, a cron job - renders it as
+# "<no value>" instead.
+#
+# toggl_pid and toggl_task pin where the entry lands. Both are optional: an
+# entry from a template that names neither is filed the way any other entry is.
+# An explicit --task still overrides the task, and --project the project of a
+# template that pins no task.
+#
+# A template pinning a task lands in that task's own project, whatever
+# toggl_pid or toggl_default_pid say - see the resolution order above.
+#
+# start and stop are read with the layouts above, and the duration follows from
+# the pair. Times without a date mean today.
 templates:
   - alias: "ds"
     description: "Daily Standup"
+    toggl_pid: 12345678
     toggl_task: 87654321
     start: "17:30"
     stop: "17:45"
 
   - alias: "call"
     description: "Call with {{.caller}}"
+
+
+# How `wo sanitize` tidies a day: it rounds ragged times off and hands the gaps
+# between entries to whichever entry they belong to. A gap before a short entry
+# is that entry's; every other gap goes to the entry that ran into it.
+#
+# no_work are the hours nothing may be stretched into. A gap over one of them
+# stays a gap, and an entry that genuinely overlaps one is left as it is.
+#
+# snap and short are durations. Leave one out for the default shown here; write
+# "0" to turn that part of the tidying off.
+sanitize:
+  snap: "5m"
+  short: "15m"
+  no_work: []
 
 
 # Configuration for task sources other than toggl. Toggl is built in and takes

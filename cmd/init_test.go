@@ -107,6 +107,15 @@ func TestInitWritesALoadableConfig(t *testing.T) {
 		if !cfg.Settings.TogglePidRequired {
 			t.Error("toggl_pid_required = false, want the default true")
 		}
+
+		sanitizer, err := workingon.NewSanitizer(cfg)
+		if err != nil {
+			t.Errorf("the sanitize section did not load: %v", err)
+		}
+		if sanitizer.Snap != workingon.DefaultSnap || sanitizer.Short != workingon.DefaultShort {
+			t.Errorf("sanitize = %s / %s, want the defaults it wrote out",
+				sanitizer.Snap, sanitizer.Short)
+		}
 	})
 }
 
@@ -738,7 +747,7 @@ func TestRenderedConfigIsValidYaml(t *testing.T) {
 		"day_first: true",
 		"toggl_pid_required: true",
 		"toggl_default_pid: 91210706",
-		"mappings: []",
+		"templates: []",
 		"sources: {}",
 	} {
 		if !strings.Contains(rendered, want) {

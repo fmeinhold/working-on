@@ -35,7 +35,7 @@ func NewProjectsCommand(cfg *workingon.Config) *cobra.Command {
 				panic(err)
 			}
 
-			currentPid, mapping := workingon.CurrentProject(cfg)
+			currentPid := workingon.CurrentProject(cfg)
 			currentKey := ""
 			if currentPid != 0 {
 				currentKey = strconv.Itoa(currentPid)
@@ -104,7 +104,7 @@ func NewProjectsCommand(cfg *workingon.Config) *cobra.Command {
 				table.SetStyle(simpletable.StyleCompactLite)
 				fmt.Println(table.String())
 			}
-			fmt.Print(currentProjectNote(currentPid, currentName, mapping, includeArchived))
+			fmt.Print(currentProjectNote(currentPid, currentName, includeArchived))
 
 			return nil
 
@@ -137,15 +137,12 @@ func marker(selected bool) string {
 }
 
 // currentProjectNote says which project is selected and what chose it, since
-// the answer depends on the directory you happen to be standing in.
-func currentProjectNote(pid int, name string, mapping *workingon.ProjectMapping, listedArchived bool) string {
+// the answer depends on the directory you happen to be standing in - a
+// .workingon.yaml beside a checkout sets toggl_default_pid for that checkout.
+func currentProjectNote(pid int, name string, listedArchived bool) string {
 	if pid == 0 {
-		return "\nNo project is currently selected - this repository maps to none and no default is set.\n"
-	}
-
-	reason := "the toggl_default_pid setting"
-	if mapping != nil {
-		reason = fmt.Sprintf("the %q mapping for this repository", mapping.Name)
+		return "\nNo project is currently selected - no toggl_default_pid is set. " +
+			"Run `wo init --local` to set one for this repository.\n"
 	}
 
 	if name == "" {
@@ -155,9 +152,9 @@ func currentProjectNote(pid int, name string, mapping *workingon.ProjectMapping,
 		if !listedArchived {
 			hint += " (try --archived)"
 		}
-		return fmt.Sprintf("\nCurrent project: %d, from %s%s.\n", pid, reason, hint)
+		return fmt.Sprintf("\nCurrent project: %d, from toggl_default_pid%s.\n", pid, hint)
 	}
 
-	return fmt.Sprintf("\nCurrent project: %s (%d), from %s.\n",
-		selectedColour.Sprint(name), pid, reason)
+	return fmt.Sprintf("\nCurrent project: %s (%d), from toggl_default_pid.\n",
+		selectedColour.Sprint(name), pid)
 }

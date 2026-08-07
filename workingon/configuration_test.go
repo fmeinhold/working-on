@@ -16,9 +16,9 @@ settings:
   toggl_api_token: the-real-token
   toggl_wid: 1562374
   toggl_pid_required: true
-mappings:
-  - name: "SW"
-    toggl_pid: 91210706
+templates:
+  - alias: "ds"
+    description: "Daily Standup"
 sources:
   tracker:
     username: real@example.com
@@ -178,21 +178,22 @@ sources:
 	}
 }
 
-func TestLocalConfigCanOverrideMappings(t *testing.T) {
+// A list in an overlay replaces the one it overrides rather than adding to it.
+func TestLocalConfigCanOverrideTemplates(t *testing.T) {
 	_, work := withConfigHome(t, globalConfig)
 
-	writeLocalConfig(t, work, "mappings:\n  - name: \"LOCAL\"\n    toggl_pid: 12345\n")
+	writeLocalConfig(t, work, "templates:\n  - alias: \"local\"\n    description: \"Local Standup\"\n")
 
 	cfg, err := InitConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if len(cfg.Projects) != 1 || cfg.Projects[0].Name != "LOCAL" {
-		t.Fatalf("mappings = %+v, want the overlay's single entry", cfg.Projects)
+	if len(cfg.Templates) != 1 || cfg.Templates[0].Alias != "local" {
+		t.Fatalf("templates = %+v, want the overlay's single entry", cfg.Templates)
 	}
-	if cfg.Projects[0].TogglePid != 12345 {
-		t.Errorf("toggl_pid = %d, want 12345", cfg.Projects[0].TogglePid)
+	if cfg.Templates[0].Description != "Local Standup" {
+		t.Errorf("description = %q, want %q", cfg.Templates[0].Description, "Local Standup")
 	}
 }
 

@@ -86,6 +86,46 @@ func chooseTaskFrom(in io.Reader, out io.Writer) workingon.TaskChooser {
 	}
 }
 
+// templateArgAsker fills in what a template's description asks for and
+// -t/--templateArgs did not answer.
+//
+// A run with nobody to ask - a script, a cron job - leaves the placeholders as
+// they were, so a scripted `wo add call` still books something rather than
+// stopping on a question no one will see.
+func templateArgAsker(interactive bool) workingon.TemplateArgAsker {
+	if !interactive {
+		return nil
+	}
+	return askTemplateArgsFrom(os.Stdin, os.Stdout)
+}
+
+// askTemplateArgsFrom asks for each placeholder in turn, under the name the
+// description knows it by.
+//
+// An answer left blank is no answer: the placeholder renders as <no value>, as
+// it would have without asking.
+func askTemplateArgsFrom(in io.Reader, out io.Writer) workingon.TemplateArgAsker {
+	prompt := &prompter{reader: bufio.NewReader(in), out: out}
+
+	return func(alias string, names []string) (map[string]string, error) {
+		fmt.Fprintf(out, "\nTemplate %q asks for %s:\n", alias, countOfArgs(len(names)))
+
+		answers := make(map[string]string, len(names))
+		for _, name := range names {
+			answers[name] = prompt.line(name, "")
+		}
+
+		return answers, nil
+	}
+}
+
+func countOfArgs(count int) string {
+	if count == 1 {
+		return "1 argument"
+	}
+	return fmt.Sprintf("%d arguments", count)
+}
+
 // describeSubject says which entry is being asked about, since the answer is
 // usually wanted for the timer that was already running rather than the one
 // just asked for.

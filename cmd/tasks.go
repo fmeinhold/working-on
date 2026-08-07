@@ -16,7 +16,6 @@ import (
 // A zero project is the whole workspace.
 type taskFilter struct {
 	projectId       int
-	mapping         *workingon.ProjectMapping
 	includeArchived bool
 
 	// projects is the lookup resolved fills in, and nil until it does.
@@ -26,14 +25,11 @@ type taskFilter struct {
 func (f taskFilter) active() bool { return f.projectId != 0 }
 
 // name is what to call the filtered project. The project's own name is what
-// `wo projects` shows, so it is the one to say; a mapping name is a local
-// alias for it, and stands in when the name could not be looked up.
+// `wo projects` shows, so it is the one to say; the id stands in when the name
+// could not be looked up.
 func (f taskFilter) name() string {
 	if project, known := f.projects[f.projectId]; known && project.Name != "" {
 		return project.Name
-	}
-	if f.mapping != nil && f.mapping.Name != "" {
-		return f.mapping.Name
 	}
 	return fmt.Sprintf("#%d", f.projectId)
 }
@@ -252,10 +248,6 @@ func areNotShown(count int) string {
 
 // taskProjectFilter is the project to narrow a task listing to: none when
 // --all is given, otherwise the project an entry started here would land in.
-//
-// That is more than the mapping for this repository - a .workingon.yaml sets
-// the project for a checkout that no mapping names, and listing every task in
-// the workspace there is no use to anyone.
 func taskProjectFilter(cmd *cobra.Command, cfg *workingon.Config) taskFilter {
 	archived, _ := cmd.Flags().GetBool("archived")
 
@@ -263,9 +255,7 @@ func taskProjectFilter(cmd *cobra.Command, cfg *workingon.Config) taskFilter {
 		return taskFilter{includeArchived: archived}
 	}
 
-	projectId, mapping := workingon.CurrentProject(cfg)
-
-	return taskFilter{projectId: projectId, mapping: mapping, includeArchived: archived}
+	return taskFilter{projectId: workingon.CurrentProject(cfg), includeArchived: archived}
 }
 
 func reportTasks(source workingon.Source, listing *taskListing, filter taskFilter) {
@@ -328,9 +318,9 @@ func NewTasksCommand(cfg *workingon.Config) *cobra.Command {
 		Long: `List the tasks for this project.
 
 Narrowed to the project a new entry would be filed under - the one ` + "`wo projects`" + `
-marks as current, whether that came from a mapping for this repository, a
-.workingon.yaml beside your checkout, or the configured default. Use --all for
-the whole workspace, which is listed under the project each task belongs to.
+marks as current, whether that came from a .workingon.yaml beside your checkout
+or the global default. Use --all for the whole workspace, which is listed under
+the project each task belongs to.
 
 Tasks of archived projects are left out, as they are from ` + "`wo projects`" + `; --archived
 lists them too.`,

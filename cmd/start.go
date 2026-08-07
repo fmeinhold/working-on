@@ -21,9 +21,33 @@ func NewStartCommand(cfg *workingon.Config) *cobra.Command {
 	)
 
 	startCommand := &cobra.Command{
-		Use:   "start",
+		Use:   "start <summary|task|template alias> <start time>",
 		Short: "Start working on a task",
-		Long:  `Start working on a task`,
+		Long: `Start a running timer.
+
+The first argument says what the entry is about - a description, a task by
+name or by id, or a template alias:
+
+  wo start "fixing the parser"
+  wo start "ATD Conference"
+  wo start 241929955
+  wo start ds
+
+A task name is matched within the project the entry lands in, so a description
+is never mistaken for one. ` + "`wo tasks`" + ` lists what you can book against, and
+` + "`wo templates`" + ` the aliases you have set up.
+
+The timer starts now unless you say when, and a date can lead the time:
+
+  wo start "fixing the parser" 9:00
+  wo start "fixing the parser" yesterday 9:00
+
+--append starts it where the last entry stopped, so the gap since then belongs
+to this one. --continue starts a fresh entry carrying the last one's
+description, project and task, and takes no summary of its own.
+
+A template's own start and stop are not used here - a timer runs from when it
+starts until you stop it.`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			var err error
 			start, duration, tail, err = ParseArgs(newParseArgsConfig(cfg), args)
@@ -83,18 +107,19 @@ func NewStartCommand(cfg *workingon.Config) *cobra.Command {
 			}
 
 			timeEntry, err := workingon.AddOrStart(cfg, workingon.EntryRequest{
-				Wid:          wid,
-				Project:      project,
-				Task:         task,
-				SummaryOrKey: strings.Join(tail, " "),
-				Start:        start,
-				Duration:     duration,
-				TemplateArgs: templateArgs,
-				Running:      true,
-				DryRun:       dry,
-				Describe:     describer(cfg),
-				ChooseTask:   taskChooser(interactive()),
-				PickTask:     pickTask,
+				Wid:            wid,
+				Project:        project,
+				Task:           task,
+				SummaryOrKey:   strings.Join(tail, " "),
+				Start:          start,
+				Duration:       duration,
+				TemplateArgs:   templateArgs,
+				Running:        true,
+				DryRun:         dry,
+				Describe:       describer(cfg),
+				ChooseTask:     taskChooser(interactive()),
+				AskTemplateArg: templateArgAsker(interactive()),
+				PickTask:       pickTask,
 			})
 			if err != nil {
 				return err
@@ -109,7 +134,8 @@ func NewStartCommand(cfg *workingon.Config) *cobra.Command {
 	startCommand.Flags().BoolVarP(&appendTo, "append", "a", false, "Use stop time of last time entry as start time for this task")
 	startCommand.Flags().BoolVarP(&cont, "continue", "c", false, "Continue last task")
 	startCommand.Flags().BoolVarP(&dry, "dry", "d", false, "Do not create anything in toggl")
-	startCommand.Flags().StringVarP(&project, "project", "p", viper.GetString("TOGGL_PROJECT"), "Set project")
+	startCommand.Flags().StringVarP(&project, "project", "p", viper.GetString("TOGGL_PROJECT"),
+		"Set the toggl project, by id or by name")
 	startCommand.Flags().String("task", viper.GetString("TOGGL_TASK"),
 		"Set the toggl task, by id or by name")
 	startCommand.Flags().Bool("pick-task", false,

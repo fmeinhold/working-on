@@ -38,12 +38,27 @@ func NewAddCommand(cfg *workingon.Config) *cobra.Command {
 		dryRun     bool
 		tail       []string
 		addCommand = &cobra.Command{
-			Use:   "add <key|summary|template alias> <start time> <duration>",
+			Use:   "add <summary|task|template alias> <times>",
 			Short: "Add a time entry",
-			Long: `Add a time entry
+			Long: `Add a time entry.
 
-Either from a template set in your config file 
-or by description/key, start time and duration`,
+The first argument says what the entry is about - a description, a task by
+name or by id, or a template alias:
+
+  wo add "fixing the parser" 9:00 1h
+  wo add "ATD Conference" 9:00 1h
+  wo add 241929955 9:00 1h
+  wo add ds
+
+A task name is matched within the project the entry lands in, so a description
+is never mistaken for one. ` + "`wo tasks`" + ` lists what you can book against, and
+` + "`wo templates`" + ` the aliases you have set up.
+
+The times that follow are a start and either a stop or a duration, and a date
+can lead them:
+
+  wo add "fixing the parser" 9:00-10:00
+  wo add "fixing the parser" yesterday 9:00 1h`,
 
 			Args: func(cmd *cobra.Command, args []string) error {
 				var err error
@@ -95,18 +110,19 @@ or by description/key, start time and duration`,
 				}
 
 				timeEntry, err := workingon.AddOrStart(cfg, workingon.EntryRequest{
-					Wid:          wid,
-					Project:      project,
-					Task:         task,
-					SummaryOrKey: strings.Join(tail, " "),
-					Start:        start,
-					Stop:         stop,
-					Duration:     duration,
-					TemplateArgs: templateArgs,
-					DryRun:       dryRun,
-					Describe:     describer(cfg),
-					ChooseTask:   taskChooser(interactive()),
-					PickTask:     pickTask,
+					Wid:            wid,
+					Project:        project,
+					Task:           task,
+					SummaryOrKey:   strings.Join(tail, " "),
+					Start:          start,
+					Stop:           stop,
+					Duration:       duration,
+					TemplateArgs:   templateArgs,
+					DryRun:         dryRun,
+					Describe:       describer(cfg),
+					ChooseTask:     taskChooser(interactive()),
+					AskTemplateArg: templateArgAsker(interactive()),
+					PickTask:       pickTask,
 				})
 				if err != nil {
 					return err
@@ -120,7 +136,8 @@ or by description/key, start time and duration`,
 
 	// Flags
 	addCommand.Flags().StringP("stop", "s", "", "Stop Time")
-	addCommand.Flags().StringP("project", "p", viper.GetString("TOGGL_PROJECT"), "Set project")
+	addCommand.Flags().StringP("project", "p", viper.GetString("TOGGL_PROJECT"),
+		"Set the toggl project, by id or by name")
 	addCommand.Flags().String("task", viper.GetString("TOGGL_TASK"),
 		"Set the toggl task, by id or by name")
 	addCommand.Flags().Bool("pick-task", false,

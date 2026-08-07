@@ -15,9 +15,26 @@ import (
 type Config struct {
 	CreatedWith string                 `yaml:"-"`
 	Settings    Settings               `yaml:"settings" mapstructure:"settings"`
-	Projects    []ProjectMapping       `mapstructure:"mappings"`
 	Templates   []TemplateConfig       `yaml:"templates" mapstructure:"templates"`
+	Sanitize    SanitizeConfig         `yaml:"sanitize" mapstructure:"sanitize"`
 	Sources     map[string]interface{} `yaml:"sources" mapstructure:"sources"`
+}
+
+// SanitizeConfig is how `wo sanitize` tidies a day.
+//
+// The durations are read as text so that leaving one out and setting it to
+// zero can mean different things: absent takes the default, "0" turns that
+// part of the tidying off.
+type SanitizeConfig struct {
+	// Snap is the grid start and stop times are rounded to, "5m" by default.
+	Snap string `mapstructure:"snap"`
+
+	// Short is the length under which an entry is a stub rather than work in
+	// its own right, "15m" by default.
+	Short string `mapstructure:"short"`
+
+	// NoWork are spans of the day nothing is stretched into, as "12:00-13:00".
+	NoWork []string `mapstructure:"no_work"`
 }
 
 type Settings struct {
@@ -47,15 +64,8 @@ type TemplateConfig struct {
 	Description string `mapstructure:"description"`
 	Start       string `mapstructure:"start"`
 	Stop        string `mapstructure:"stop"`
-	Project     int    `mapstructure:"project"`
+	TogglPid    int    `mapstructure:"toggl_pid"`
 	TogglTask   int    `mapstructure:"toggl_task"`
-}
-
-type ProjectMapping struct {
-	Name      string `yaml:"name" mapstructure:"name"`
-	TogglePid int    `yaml:"toggl_pid"  mapstructure:"toggl_pid"`
-	TogglTask int    `yaml:"toggl_task" mapstructure:"toggl_task"`
-	Git       string `yaml:"git" mapstructure:"git"`
 }
 
 var (
@@ -70,20 +80,6 @@ func (c *Config) GetTemplate(alias string) (*TemplateConfig, error) {
 		}
 	}
 	return nil, nil
-}
-
-func (c *Config) GetMapping(key string) (*ProjectMapping, error) {
-	var projectMapping *ProjectMapping
-	for _, n := range c.Projects {
-		if strings.EqualFold(n.Name, key) {
-			projectMapping = &n
-			break
-		}
-	}
-	if projectMapping == nil {
-		return nil, fmt.Errorf("project mapping not found for key %s", key)
-	}
-	return projectMapping, nil
 }
 
 func newStringToLocationHookFunc() mapstructure.DecodeHookFunc {

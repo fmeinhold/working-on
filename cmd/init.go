@@ -729,10 +729,12 @@ settings:
   toggl_wid: {{.WorkspaceId}}
 
   # A time entry's project is resolved in this order:
-  #   1. the --project flag
-  #   2. the project the task belongs to
-  #   3. a mapping below matching this repository's git remote
-  #   4. toggl_default_pid
+  #   1. the project the task belongs to, for an entry that ended up with one
+  #   2. the --project flag, by id or by project name
+  #   3. toggl_default_pid
+  # The task leads because it belongs to exactly one project, and toggl refuses
+  # an entry filing it under another.
+  #
   # If none of those produce one, toggl_pid_required decides whether that is
   # an error or an entry with no project.
   #
@@ -740,8 +742,7 @@ settings:
   #   1. the --task flag, by id or by name
   #   2. a task named as the summary  (wo add "Some Task" 2h)
   #   3. a task referenced by id      (wo add 241929955 2h)
-  #   4. the toggl_task of the mapping this repository matches
-  #   5. toggl_default_task, for an entry that landed in toggl_default_pid
+  #   4. toggl_default_task, for an entry that landed in toggl_default_pid
   toggl_pid_required: {{.PidRequired}}
   toggl_default_pid: {{.DefaultPid}}
 
@@ -759,25 +760,27 @@ settings:
   toggl_default_description: ""
 
 
-# Map a project name or a git repository to a toggl project, and optionally to
-# a task within it. The git entry is matched against the repository's origin
-# url, so work done in that checkout is filed automatically.
-#
-#   - name: "EXAMPLE"
-#     toggl_pid: 12345678
-#     toggl_task: 87654321
-#     git: git@github.com:you/example.git
-mappings: []
-
-
 # Time entry templates, addressed by their alias: ` + "`wo add ds`" + ` books the
-# daily standup. Descriptions are Go templates, filled from --templateArgs.
+# daily standup. Descriptions are Go templates, filled from --templateArgs;
+# ` + "`wo`" + ` asks for a placeholder no argument answered for.
+# toggl_pid and toggl_task are optional, and pin where the entry lands.
 #
 #   - alias: "ds"
 #     description: "Daily Standup"
+#     toggl_pid: 12345678
+#     toggl_task: 87654321
 #     start: "17:30"
 #     stop: "17:45"
 templates: []
+
+
+# How ` + "`wo sanitize`" + ` tidies a day. no_work are hours nothing is stretched
+# into, as "12:00-13:00"; snap is the grid times are rounded to, and short the
+# length under which an entry takes the gaps around it. Write "0" for none.
+sanitize:
+  snap: "5m"
+  short: "15m"
+  no_work: []
 
 
 # Task sources other than toggl. Toggl is built in and takes its credentials

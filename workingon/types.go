@@ -3,8 +3,8 @@ package workingon
 // Project is a project as a source sees it.
 //
 // TogglProject is set only when the source already knows the toggl project id.
-// A toggl-native project knows its own; a project from any other source has to
-// be resolved through a mapping in the config.
+// A toggl-native project knows its own; a project from any other source names
+// no place an entry could be filed, so it is left zero.
 type Project struct {
 	Key          string
 	Name         string

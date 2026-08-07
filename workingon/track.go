@@ -10,9 +10,8 @@ import (
 )
 
 var (
-	ErrorPidRequired        = errors.New("no project id found for toggl but TogglPidRequired is set to true")
-	ErrorPidNotSetInMapping = errors.New("project pid not set in mapping")
-	ErrorTaskRequired       = errors.New("this workspace wants a task on every entry (toggl_task_required)")
+	ErrorPidRequired  = errors.New("no project id found for toggl but TogglPidRequired is set to true")
+	ErrorTaskRequired = errors.New("this workspace wants a task on every entry (toggl_task_required)")
 )
 
 // AppendStartTime is the moment the most recent time entry finished, for
@@ -176,9 +175,8 @@ func findTaskByName(name string, projectId int) (*Task, error) {
 	return nil, fmt.Errorf("%w: no task named %q", ErrTaskNotFound, name)
 }
 
-// applyTask attaches an explicitly requested task, or the one a mapping pins
-// to this repository, or the configured default.
-func applyTask(cfg *Config, timeEntry *toggl.TimeEntry, taskRef string, mapping *ProjectMapping) error {
+// applyTask attaches an explicitly requested task, or the configured default.
+func applyTask(cfg *Config, timeEntry *toggl.TimeEntry, taskRef string) error {
 	if taskRef != "" {
 		// A --task wins over anything inferred, and may be an id or a name.
 		if id, err := strconv.Atoi(taskRef); err == nil {
@@ -197,10 +195,6 @@ func applyTask(cfg *Config, timeEntry *toggl.TimeEntry, taskRef string, mapping 
 		return nil
 	}
 
-	if timeEntry.TaskId == 0 && mapping != nil && mapping.TogglTask != 0 {
-		timeEntry.TaskId = mapping.TogglTask
-	}
-
 	// The default task belongs to the default project, so it is only right for
 	// an entry that landed in that project - anywhere else it would attach a
 	// task from a project the entry is not in.
@@ -212,53 +206,53 @@ func applyTask(cfg *Config, timeEntry *toggl.TimeEntry, taskRef string, mapping 
 	return nil
 }
 
-// resolveProject works out which toggl project a new entry belongs to, and the
-// mapping it came from if there was one.
+// resolveProject works out which toggl project a new entry belongs to.
 //
-// Order: the --project flag, then the repository we are standing in, then the
-// configured default. It runs before the task is resolved, because a task name
-// is only unambiguous within a project.
-func resolveProject(cfg *Config, project string) (int, *ProjectMapping) {
-	if project != "" {
-		if pid, err := strconv.Atoi(project); err == nil {
-			return pid, nil
-		}
-		if mapping, err := cfg.GetMapping(project); err == nil {
-			return mapping.TogglePid, mapping
-		}
-		return 0, nil
+// Order: the --project flag, then the configured default - which a
+// .workingon.yaml beside a checkout sets per repository. It runs before the
+// task is resolved, because a task name is only unambiguous within a project.
+//
+// A --project is either an id or the name of a project the workspace has.
+// An unresolvable one is an error rather than a silent fall back to the
+// default: filing time under the wrong project is worse than not filing it.
+func resolveProject(cfg *Config, project string) (int, error) {
+	if project == "" {
+		return cfg.Settings.ToggleDefaultPid, nil
 	}
 
-	if mapping := FindMappingByGitRepositoryUrl(cfg); mapping != nil {
-		return mapping.TogglePid, mapping
+	if pid, err := strconv.Atoi(project); err == nil {
+		return pid, nil
 	}
 
-	return cfg.Settings.ToggleDefaultPid, nil
+	return FindProjectByName(project)
 }
 
 // CurrentProject is the project an entry started here and now would be filed
-// under with no --project flag, and the mapping that chose it if one did.
+// under with no --project flag.
 //
 // It defers to resolveProject rather than repeating the precedence, so a
 // listing that points at the current project cannot drift from the one an
 // entry actually lands in.
-func CurrentProject(cfg *Config) (int, *ProjectMapping) {
-	return resolveProject(cfg, "")
+func CurrentProject(cfg *Config) int {
+	pid, _ := resolveProject(cfg, "")
+	return pid
 }
 
 // resolveEntry turns the summary argument into a time entry: a task key, a
 // template alias, a task name in this project, or plain description text.
-func resolveEntry(summaryOrKey string, pid int, templateArgs map[string]string) (*toggl.TimeEntry, error) {
+func resolveEntry(summaryOrKey string, pid int, req EntryRequest) (*toggl.TimeEntry, error) {
 	task, err := Registry.GetTask(summaryOrKey)
 	if task != nil {
-		return entryForTask(task)
+		return entryForTask(task), nil
 	}
 
 	// Maybe it's an alias for a template
 	if tpl, _ := Configuration.GetTemplate(summaryOrKey); tpl != nil {
-		// We need to overwrite the startime and stoptime from the commandline
-		// for example: wo add ds 21.01.2021 should work
-		return tpl.CreateTimeEntryFromTemplate(templateArgs)
+		args, askErr := tpl.answerOpenArgs(req.TemplateArgs, req.AskTemplateArg)
+		if askErr != nil {
+			return nil, askErr
+		}
+		return tpl.CreateTimeEntryFromTemplate(args)
 	}
 
 	if err != nil && !errors.Is(err, ErrNoSourceClaimsKey) {
@@ -271,64 +265,99 @@ func resolveEntry(summaryOrKey string, pid int, templateArgs map[string]string) 
 	// The name of a task in this project is a reference to it, not a
 	// description that happens to read the same way.
 	if named := lookupTaskByName(summaryOrKey, pid); named != nil {
-		return entryForTask(named)
+		return entryForTask(named), nil
 	}
 
 	// It is just a Summary / Description
 	return &toggl.TimeEntry{Description: summaryOrKey}, nil
 }
 
-func entryForTask(task *Task) (*toggl.TimeEntry, error) {
-	timeEntry := &toggl.TimeEntry{
-		Description: describeTask(task),
-		// A toggl-native task can be linked to directly. Sources that are
-		// not toggl leave this zero.
-		TaskId: task.TogglTask,
+// settleProjectAgainstTask gives the task the last word on the project.
+//
+// A task belongs to exactly one project, and toggl refuses an entry that files
+// it under another - so of the two, only the task can be honoured. Whatever
+// chose the project, be it the --project flag, a template's toggl_pid or the
+// checkout's toggl_default_pid, the task the entry ended up with settles it.
+//
+// A task that cannot be looked up leaves the project alone: an entry that may
+// be wrong still beats refusing to book time over a cold cache.
+func settleProjectAgainstTask(timeEntry *toggl.TimeEntry) {
+	if timeEntry.TaskId == 0 {
+		return
 	}
 
-	pm, _ := Configuration.GetMapping(task.Project.Key)
-	switch {
-	case pm != nil:
-		if pm.TogglePid == 0 {
-			return nil, ErrorPidNotSetInMapping
-		}
-		timeEntry.ProjectId = pm.TogglePid
-	case task.Project.TogglProject != 0:
-		// A toggl-native task already belongs to a toggl project, so there is
-		// nothing to map it through.
-		timeEntry.ProjectId = task.Project.TogglProject
+	if projectId := projectOfTask(timeEntry.TaskId); projectId != 0 {
+		timeEntry.ProjectId = projectId
 	}
-
-	return timeEntry, nil
 }
 
+// projectOfTask is the project a toggl task belongs to, and zero when it cannot
+// be looked up.
+func projectOfTask(taskId int) int {
+	task, err := Registry.GetTask(strconv.Itoa(taskId))
+	if err != nil || task == nil {
+		return 0
+	}
+	return task.Project.TogglProject
+}
+
+func entryForTask(task *Task) *toggl.TimeEntry {
+	return &toggl.TimeEntry{
+		Description: describeTask(task),
+		// A toggl-native task can be linked to directly, and already belongs to
+		// a toggl project. A task from any other source has neither, so the
+		// entry keeps whatever the flag or the default chose.
+		TaskId:    task.TogglTask,
+		ProjectId: task.Project.TogglProject,
+	}
+}
+
+// NewTimeEntry is the plain form of newTimeEntry, for a caller holding the
+// parts of an entry rather than a whole EntryRequest.
 func NewTimeEntry(cfg *Config, project string, wid int, summaryOrKey string,
 	templateArgs map[string]string, taskRef string) (*toggl.TimeEntry, error) {
 
-	pid, mapping := resolveProject(cfg, project)
+	return newTimeEntry(cfg, EntryRequest{
+		Wid:          wid,
+		Project:      project,
+		Task:         taskRef,
+		SummaryOrKey: summaryOrKey,
+		TemplateArgs: templateArgs,
+	})
+}
 
-	timeEntry, err := resolveEntry(summaryOrKey, pid, templateArgs)
+func newTimeEntry(cfg *Config, req EntryRequest) (*toggl.TimeEntry, error) {
+
+	pid, err := resolveProject(cfg, req.Project)
+	if err != nil {
+		return nil, err
+	}
+
+	timeEntry, err := resolveEntry(req.SummaryOrKey, pid, req)
 	if err != nil {
 		return nil, err
 	}
 
 	switch {
-	case project != "":
-		// An explicit --project wins over whatever the task belongs to.
+	case req.Project != "":
+		// An explicit --project wins over what the entry brought with it, for
+		// an entry that carries no task to settle it below.
 		timeEntry.ProjectId = pid
 	case timeEntry.ProjectId == 0:
 		timeEntry.ProjectId = pid
 	}
 
-	if err := applyTask(cfg, timeEntry, taskRef, mapping); err != nil {
+	if err := applyTask(cfg, timeEntry, req.Task); err != nil {
 		return nil, err
 	}
+
+	settleProjectAgainstTask(timeEntry)
 
 	if timeEntry.TaskId == 0 && timeEntry.ProjectId == 0 && cfg.Settings.TogglePidRequired {
 		return nil, ErrorPidRequired
 	}
 
-	timeEntry.WorkspaceId = wid
+	timeEntry.WorkspaceId = req.Wid
 	timeEntry.CreatedWith = toggl.CreatedWith
 
 	return timeEntry, nil
@@ -416,9 +445,9 @@ func TasksInProject(projectId int) ([]Task, error) {
 func requireTask(cfg *Config, timeEntry *toggl.TimeEntry, req EntryRequest) error {
 	required := cfg.Settings.ToggleTaskRequired
 
-	// --pick-task asks even about a task that was inherited - from a mapping,
-	// from the default, or from the entry being continued - since that is the
-	// only reason to pass it. A --task names one outright, and settles it.
+	// --pick-task asks even about a task that was inherited - from the default,
+	// or from the entry being continued - since that is the only reason to pass
+	// it. A --task names one outright, and settles it.
 	asked := req.PickTask && req.Task == ""
 
 	if !asked && (timeEntry.TaskId != 0 || !required) {
@@ -491,6 +520,9 @@ type EntryRequest struct {
 	// ChooseTask answers for an entry that resolved to no task, when the
 	// workspace requires one or PickTask asked to choose.
 	ChooseTask TaskChooser
+	// AskTemplateArg answers for the placeholders in a template's description
+	// that TemplateArgs left open. Leave it nil to render them as <no value>.
+	AskTemplateArg TemplateArgAsker
 	// PickTask asks for the task to be chosen even where the workspace does
 	// not insist on one.
 	PickTask bool
@@ -547,8 +579,7 @@ func nameRunningEntry(client *toggl.Toggl, describer Describer) (*toggl.TimeEntr
 }
 
 func AddOrStart(cfg *Config, req EntryRequest) (*toggl.TimeEntry, error) {
-	timeEntry, err := NewTimeEntry(cfg, req.Project, req.Wid, req.SummaryOrKey,
-		req.TemplateArgs, req.Task)
+	timeEntry, err := newTimeEntry(cfg, req)
 	if err != nil {
 		return nil, fmt.Errorf("timeEntry: %s", err)
 	}

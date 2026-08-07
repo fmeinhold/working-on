@@ -6,7 +6,6 @@ import (
 	"github.com/fefeme/workingon/workingon"
 
 	"github.com/spf13/cobra"
-	"github.com/tcnksm/go-gitconfig"
 )
 
 // tasksCommandWith builds the command as NewTasksCommand does, so the flags the
@@ -22,8 +21,8 @@ func tasksCommandWith(t *testing.T, cfg *workingon.Config, args ...string) *cobr
 	return command
 }
 
-// A .workingon.yaml names the project for a checkout that no mapping matches,
-// and that is as much "this project" as a mapping is.
+// A .workingon.yaml names the project for a checkout by setting the default,
+// so the default is what "this project" means.
 func TestTaskProjectFilterUsesTheConfiguredDefault(t *testing.T) {
 	cfg := &workingon.Config{}
 	cfg.Settings.ToggleDefaultPid = 91210706
@@ -33,19 +32,13 @@ func TestTaskProjectFilterUsesTheConfiguredDefault(t *testing.T) {
 	}
 }
 
-func TestTaskProjectFilterPrefersTheRepositoryMapping(t *testing.T) {
-	origin, err := gitconfig.OriginURL()
-	if err != nil || origin == "" {
-		t.Skip("not in a checkout with an origin to match against")
-	}
+// With no default anywhere there is no project to narrow to, and the listing
+// must not silently become the whole workspace pretending to be one.
+func TestTaskProjectFilterIsInactiveWithoutADefault(t *testing.T) {
+	cfg := &workingon.Config{}
 
-	cfg := &workingon.Config{
-		Projects: []workingon.ProjectMapping{{Name: "here", TogglePid: 188362780, Git: origin}},
-	}
-	cfg.Settings.ToggleDefaultPid = 91210706
-
-	if got := taskProjectFilter(tasksCommandWith(t, cfg), cfg); got.projectId != 188362780 {
-		t.Errorf("filter = %+v, want the mapped project", got)
+	if got := taskProjectFilter(tasksCommandWith(t, cfg), cfg); got.active() {
+		t.Errorf("filter = %+v, want no project", got)
 	}
 }
 
