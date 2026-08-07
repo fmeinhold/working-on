@@ -7,6 +7,14 @@ before:
   hooks:
     - go mod download
 
+    # Written once here rather than generated from the installed binary,
+    # which homebrew's sandbox will not run: the binaries are unsigned, so
+    # gatekeeper kills them before they can print anything.
+    - mkdir -p completions
+    - sh -c "go run . completion bash > completions/wo.bash"
+    - sh -c "go run . completion zsh > completions/wo.zsh"
+    - sh -c "go run . completion fish > completions/wo.fish"
+
 builds:
   - id: wo
     main: ./main.go
@@ -36,6 +44,7 @@ archives:
       - LICENSE
       - Readme.md
       - config.example.yaml
+      - completions/*
 
 checksum:
   name_template: checksums.txt
@@ -75,12 +84,10 @@ homebrew_casks:
     commit_msg_template: "wo: update to {{ .Tag }}"
     caveats: |
       Run `wo init` to set up your toggl track API token and config.
-    # Run on the installed binary rather than shipped as files, so the
-    # completions always describe the version that was actually installed.
-    generate_completions_from_executable:
-      args: [completion]
-      shell_parameter_format: cobra
-      shells: [bash, zsh, fish]
+    completions:
+      bash: completions/wo.bash
+      zsh: completions/wo.zsh
+      fish: completions/wo.fish
     # The binaries are not signed or notarized, so macOS would otherwise refuse
     # to run them with "wo is damaged and cannot be opened".
     hooks:
