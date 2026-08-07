@@ -1,0 +1,85 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+version: 2
+
+project_name: workingon
+
+before:
+  hooks:
+    - go mod download
+
+builds:
+  - id: wo
+    main: ./main.go
+    binary: wo
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/fefeme/workingon/cmd.version={{ .Version }}
+      - -X github.com/fefeme/workingon/cmd.commit={{ .FullCommit }}
+      - -X github.com/fefeme/workingon/cmd.date={{ .CommitDate }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: wo
+    formats: [tar.gz]
+    name_template: "wo_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - Readme.md
+      - config.example.yaml
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^WIP"
+      - Merge pull request
+      - Merge branch
+
+release:
+  github:
+    owner: fmeinhold
+    name: working-on
+  draft: false
+  prerelease: auto
+
+homebrew_casks:
+  - name: wo
+    binaries: [wo]
+    homepage: https://github.com/fmeinhold/working-on
+    description: Track what you're working on from the command line, with toggl track
+    license: MIT
+    repository:
+      owner: fmeinhold
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+    commit_msg_template: "wo: update to {{ .Tag }}"
+    caveats: |
+      Run `wo init` to set up your toggl track API token and config.
+    # The binaries are not signed or notarized, so macOS would otherwise refuse
+    # to run them with "wo is damaged and cannot be opened".
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/wo"]
+          end

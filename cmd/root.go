@@ -60,7 +60,11 @@ func Execute() {
 		NewContinueCommand(cfg),
 		NewCacheCommand(cfg),
 		NewInitCommand(cfg),
+		NewVersionCommand(),
 	)
+
+	rootCmd.Version = versionString()
+	rootCmd.SetVersionTemplate("{{.Version}}\n")
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -70,7 +74,8 @@ func Execute() {
 // needsConfig reports whether a command cannot run without a config file.
 func needsConfig(cmd *cobra.Command) bool {
 	for c := cmd; c != nil; c = c.Parent() {
-		if c.Name() == "init" {
+		switch c.Name() {
+		case "init", "version":
 			return false
 		}
 	}

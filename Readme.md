@@ -10,7 +10,24 @@ It has only been tested on MacOS and Linux so far.
 
 ## Install
 
-Coming Soon, looking into homebrew taps.
+```
+brew install fmeinhold/tap/wo
+```
+
+That pulls a prebuilt binary for macOS or Linux, on intel or arm. `brew upgrade wo` moves you on.
+
+To build it yourself instead, with go 1.20 or later:
+
+```
+git clone https://github.com/fmeinhold/working-on.git
+cd working-on
+make install
+```
+
+`make install` writes to `/usr/local/bin` and asks for sudo doing it; `PREFIX=~/.local make install SUDO=`
+puts it somewhere that does not.
+
+`wo version` tells you which build you are on.
 
 
 ## Setup
@@ -271,3 +288,27 @@ settings:
 ```
 
 A run with nobody to ask - a script, a cron job - never blocks on the question; it calls the entry `Untitled`.
+
+## Releasing
+
+Tagging is the whole release process:
+
+```
+git tag -a v0.2.0 -m "v0.2.0"
+git push origin v0.2.0
+```
+
+The `release` workflow runs the tests, then [GoReleaser](https://goreleaser.com) cross compiles darwin and
+linux on amd64 and arm64, publishes a GitHub release with the archives and their checksums, and commits the
+updated cask to [fmeinhold/homebrew-tap](https://github.com/fmeinhold/homebrew-tap). Tags are read as
+semver, so `v0.2.0-rc1` and its like are marked as prereleases and homebrew leaves them alone.
+
+Pushing to a second repository needs a token of its own - the workflow's built in `GITHUB_TOKEN` only reaches
+this one. Create a fine grained personal access token with `contents: read and write` on `homebrew-tap`, and
+store it here as the `HOMEBREW_TAP_TOKEN` repository secret.
+
+To see what a release would produce without publishing anything:
+
+```
+goreleaser release --snapshot --clean --skip=publish
+```
