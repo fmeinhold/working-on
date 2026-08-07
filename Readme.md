@@ -6,6 +6,10 @@ First and foremost it's useful to me - it's a tool to easly track my time with t
 using different sources as tasks. At the moment toggl is the only source, but the source interface is there so
 others can be added. It is also an excuse to learn go.
 
+It is built to be run from inside your local repositories. Running `wo init` in a working copy maps that checkout
+to a toggl project, and time you start there is filed against it from then on without you naming it - see
+[In your repositories](#in-your-repositories).
+
 It has only been tested on MacOS and Linux so far.
 
 ## Install
@@ -69,9 +73,23 @@ To avoid the token appearing in your terminal scrollback:
 wo init --token "$(pbpaste)"
 ```
 
-Run `wo init` again inside a repository and it sets that checkout up instead: it asks which project and task work
-done there belongs to, and writes a `.workingon.yaml` at the repository root. `--global` and `--local` pick the file
-explicitly when the guess is wrong.
+### In your repositories
+
+`wo` is meant to be run from inside the checkout you are working in. That is how it knows what you are working on
+without being told twice: the repository you are sitting in names the toggl project, so `wo start "fixing the
+parser"` is the whole command rather than a `--project` typed out again every time.
+
+So run `wo init` a second time, from inside each repository you track time against. It sets that checkout up rather
+than your account: it asks which toggl project and task the work done there belongs to, and writes a
+`.workingon.yaml` at the repository root recording the answer.
+
+```
+cd ~/Source/some-project
+wo init
+```
+
+`--global` and `--local` pick which of the two files is written when the guess is wrong. A repository you never run
+it in is not broken - entries from there just fall back to the global default project.
 
 ## Projects
 
@@ -116,6 +134,37 @@ to.
 It is looked for from the working directory upwards, stopping at the repository root. Credentials are ignored
 there - a checked in overlay cannot change which account you authenticate as. Note that a list, such as `templates`,
 replaces the one it overrides rather than adding to it.
+
+### Ignoring it globally
+
+The file maps your checkout to your toggl account, and those project ids mean nothing in anyone else's. It belongs
+in your own global ignore rather than in each repository's `.gitignore` - a repository you do not own is not one you
+can add it to anyway, and doing it globally is done once for every repository you will ever run `wo init` in.
+
+Check first whether git has already been pointed at an ignore file of your own:
+
+```
+git config --global core.excludesfile
+```
+
+If that prints a path - something like `~/.gitignore_global` - append to that file, since setting it means git stops
+reading anywhere else:
+
+```
+echo '.workingon.yaml' >> ~/.gitignore_global
+```
+
+If it prints nothing, git reads `~/.config/git/ignore` without being told to, so writing that file is the whole job:
+
+```
+mkdir -p ~/.config/git
+echo '.workingon.yaml' >> ~/.config/git/ignore
+```
+
+A repository that would rather have the file committed - a project where everyone books to the same toggl project -
+can still have it: `git add -f .workingon.yaml` once is enough, since an ignore file is only consulted about files
+git is not already tracking. A repository `.gitignore` outranks your global one, so `!.workingon.yaml` there undoes
+it for that checkout for good.
 
 ## Tasks
 
