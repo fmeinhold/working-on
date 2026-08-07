@@ -119,6 +119,52 @@ func TestInitWritesALoadableConfig(t *testing.T) {
 	})
 }
 
+// The date questions offer what the locale writes, and a blank line takes it.
+func TestInitOffersTheLocaleDateDefaults(t *testing.T) {
+	for _, tc := range []struct {
+		locale   string
+		date     string
+		dateTime string
+	}{
+		{"en_US.UTF-8", "1/2/2006", "1/2/2006 3:04 PM"},
+		{"de_DE.UTF-8", "2.1.2006", "2.1.2006 15:04"},
+		{"sv_SE.UTF-8", "2006-01-02", "2006-01-02 15:04"},
+	} {
+		t.Run(tc.locale, func(t *testing.T) {
+			isolateLocale(t)
+			t.Setenv("LANG", tc.locale)
+
+			dir := t.TempDir()
+			path := filepath.Join(dir, "config.yaml")
+
+			session, out := oneWorkspace().session(t, "token\n\n\n\n\n\n", path)
+
+			if err := runInit(session); err != nil {
+				t.Fatalf("runInit: %v", err)
+			}
+
+			for _, want := range []string{
+				"Date format [" + tc.date + "]",
+				"Date and time format [" + tc.dateTime + "]",
+			} {
+				if !strings.Contains(out.String(), want) {
+					t.Errorf("prompt did not offer %q:\n%s", want, out)
+				}
+			}
+
+			loadConfigFrom(t, dir, func(cfg *workingon.Config) {
+				if cfg.Settings.DateLayout != tc.date {
+					t.Errorf("date_layout = %q, want %q", cfg.Settings.DateLayout, tc.date)
+				}
+				if cfg.Settings.DateTimeLayout != tc.dateTime {
+					t.Errorf("date_time_layout = %q, want %q",
+						cfg.Settings.DateTimeLayout, tc.dateTime)
+				}
+			})
+		})
+	}
+}
+
 // loadConfigFrom runs the real config loader against a directory laid out the
 // way the loader expects.
 func loadConfigFrom(t *testing.T, dir string, check func(*workingon.Config)) {

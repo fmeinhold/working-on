@@ -36,6 +36,12 @@ Run ```wo init``` - this will ask you for your toggl track api key (https://trac
 mostly date and time related questions. It checks the token before going any further, and lets you pick a workspace
 and a default project from what the account actually has. The config is written to ~/.config/working_on/config.yaml.
 
+The date and time questions are answered for you from your locale - `LC_ALL`, `LC_TIME` or `LANG`, and on macOS the
+system setting where none of those are exported. A machine set to `en_US` is offered `1/2/2006` and a twelve hour
+clock, one set to `de_DE` gets `2.1.2006` and a twenty four hour one, and a locale that names somewhere unknown -
+or names nowhere at all - falls back to the US pair. It is only ever the default the prompt shows, so type over it
+where it guessed wrong.
+
 Listings of projects and tasks show the first 20; typing part of a name narrows them to what matches, and `*` brings
 the whole list back, so a workspace with hundreds of projects is still one you can pick from.
 

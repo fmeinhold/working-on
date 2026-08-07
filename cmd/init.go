@@ -284,9 +284,10 @@ func askInitQuestions(prompt *prompter, session initSession) (initAnswers, error
 
 	answers.Location = prompt.line("Timezone", localTimezone())
 
-	answers.DateLayout = prompt.line("Date format", "2.1.2006")
+	answers.DateLayout = prompt.line("Date format", localeDateLayout())
 	answers.DayFirst = dayFirstLayout(answers.DateLayout)
-	answers.DateTimeLayout = prompt.line("Date and time format", answers.DateLayout+" 15:04")
+	answers.DateTimeLayout = prompt.line("Date and time format",
+		answers.DateLayout+" "+localeTimeLayout())
 
 	answers.PidRequired = prompt.yesNo("Require a project on every entry", true)
 	answers.TaskRequired = prompt.yesNo("Require a task on every entry", false)
