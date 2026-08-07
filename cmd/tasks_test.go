@@ -28,8 +28,8 @@ func TestTaskProjectFilterUsesTheConfiguredDefault(t *testing.T) {
 	cfg := &workingon.Config{}
 	cfg.Settings.ToggleDefaultPid = 91210706
 
-	if got := taskProjectFilter(tasksCommandWith(t, cfg), cfg); got != 91210706 {
-		t.Errorf("filter = %d, want the default project", got)
+	if got := taskProjectFilter(tasksCommandWith(t, cfg), cfg); got.projectId != 91210706 {
+		t.Errorf("filter = %+v, want the default project", got)
 	}
 }
 
@@ -44,8 +44,8 @@ func TestTaskProjectFilterPrefersTheRepositoryMapping(t *testing.T) {
 	}
 	cfg.Settings.ToggleDefaultPid = 91210706
 
-	if got := taskProjectFilter(tasksCommandWith(t, cfg), cfg); got != 188362780 {
-		t.Errorf("filter = %d, want the mapped project", got)
+	if got := taskProjectFilter(tasksCommandWith(t, cfg), cfg); got.projectId != 188362780 {
+		t.Errorf("filter = %+v, want the mapped project", got)
 	}
 }
 
@@ -53,8 +53,8 @@ func TestTaskProjectFilterListsEverythingWithAll(t *testing.T) {
 	cfg := &workingon.Config{}
 	cfg.Settings.ToggleDefaultPid = 91210706
 
-	if got := taskProjectFilter(tasksCommandWith(t, cfg, "--all"), cfg); got != 0 {
-		t.Errorf("filter = %d, want no filter at all", got)
+	if got := taskProjectFilter(tasksCommandWith(t, cfg, "--all"), cfg); got.active() {
+		t.Errorf("filter = %+v, want no filter at all", got)
 	}
 }
 
@@ -74,7 +74,7 @@ func TestTaskProjectFilterAllReachesTheSourceSubcommands(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := taskProjectFilter(sub, cfg); got != 0 {
-		t.Errorf("filter = %d, want no filter at all", got)
+	if got := taskProjectFilter(sub, cfg); got.active() {
+		t.Errorf("filter = %+v, want no filter at all", got)
 	}
 }

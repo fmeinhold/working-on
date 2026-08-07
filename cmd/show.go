@@ -348,6 +348,19 @@ func (d *dayNames) project(projectId int) string {
 func projectNames() map[int]string {
 	names := make(map[int]string)
 
+	for projectId, project := range projectIndex() {
+		names[projectId] = project.Name
+	}
+
+	return names
+}
+
+// projectIndex is every project of every source by id, archived ones included.
+// A caller that cares which is which reads Archived; one that does not gets a
+// name either way.
+func projectIndex() map[int]workingon.Project {
+	index := make(map[int]workingon.Project)
+
 	for _, source := range workingon.Registry.RegisteredSources {
 		projects, err := source.GetProjects(true)
 		if err != nil {
@@ -358,9 +371,9 @@ func projectNames() map[int]string {
 			if err != nil {
 				continue
 			}
-			names[projectId] = project.Name
+			index[projectId] = project
 		}
 	}
 
-	return names
+	return index
 }
