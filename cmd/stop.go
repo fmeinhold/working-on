@@ -26,6 +26,9 @@ func NewStopCommand(cfg *workingon.Config) *cobra.Command {
 				return err
 			}
 
+			if jsonOutput {
+				return emitEntry("stopped", timeEntry, cfg)
+			}
 			fmt.Printf("Stopped %s. \n", timeEntry)
 
 			return nil

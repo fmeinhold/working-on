@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/fefeme/workingon/workingon"
 	"github.com/spf13/cobra"
@@ -68,17 +69,23 @@ to be certain.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			keepers := cacheKeepers()
-			if len(keepers) == 0 {
+			if len(keepers) == 0 && !jsonOutput {
 				fmt.Println("No source keeps a local cache.")
 				return nil
 			}
 
-			var cleared []string
+			cleared := []string{}
 			for _, source := range keepers {
 				if err := source.(cacheKeeper).ClearCache(); err != nil {
 					return fmt.Errorf("unable to clear the %s cache: %w", source.GetName(), err)
 				}
 				cleared = append(cleared, source.GetName())
+			}
+
+			if jsonOutput {
+				return emit(struct {
+					Cleared []string `json:"cleared"`
+				}{cleared})
 			}
 
 			fmt.Printf("Cleared the task cache for: %s\n", strings.Join(cleared, ", "))
@@ -94,32 +101,71 @@ func newCacheStatusCommand() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			keepers := cacheKeepers()
-			if len(keepers) == 0 {
+			if len(keepers) == 0 && !jsonOutput {
 				fmt.Println("No source keeps a local cache.")
 				return nil
 			}
 
+			type cacheJSON struct {
+				Source  string `json:"source"`
+				Path    string `json:"path,omitempty"`
+				Exists  bool   `json:"exists"`
+				Bytes   int64  `json:"bytes,omitempty"`
+				Updated string `json:"updated,omitempty"`
+			}
+
+			caches := []cacheJSON{}
+
 			for _, source := range keepers {
 				locator, ok := source.(cacheLocator)
 				if !ok {
+					if jsonOutput {
+						caches = append(caches, cacheJSON{Source: source.GetName()})
+						continue
+					}
 					fmt.Printf("%s: caching enabled\n", source.GetName())
 					continue
 				}
 
 				path := locator.CachePath()
 				if path == "" {
+					if jsonOutput {
+						caches = append(caches, cacheJSON{Source: source.GetName()})
+						continue
+					}
 					fmt.Printf("%s: caching disabled, no writable cache directory\n", source.GetName())
 					continue
 				}
 
 				info, err := os.Stat(path)
 				if err != nil {
+					if jsonOutput {
+						caches = append(caches, cacheJSON{Source: source.GetName(), Path: path})
+						continue
+					}
 					fmt.Printf("%s: no cache yet (%s)\n", source.GetName(), path)
+					continue
+				}
+
+				if jsonOutput {
+					caches = append(caches, cacheJSON{
+						Source:  source.GetName(),
+						Path:    path,
+						Exists:  true,
+						Bytes:   info.Size(),
+						Updated: info.ModTime().Format(time.RFC3339),
+					})
 					continue
 				}
 
 				fmt.Printf("%s: %s (%.1f KiB, updated %s)\n", source.GetName(), path,
 					float64(info.Size())/1024, info.ModTime().Format("2006-01-02 15:04:05"))
+			}
+
+			if jsonOutput {
+				return emit(struct {
+					Caches []cacheJSON `json:"caches"`
+				}{caches})
 			}
 
 			return nil

@@ -22,6 +22,11 @@ func NewProjectsCommand(cfg *workingon.Config) *cobra.Command {
 		Short: "List all projects",
 		Long:  `List all projects`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Ahead of the spinner, which writes to the same stream the
+			// document would go to.
+			if jsonOutput {
+				return emitProjects(cfg, args, includeArchived)
+			}
 
 			spinner, err := yacspin.New(yacspin.Config{
 				Frequency:     100 * time.Millisecond,
@@ -114,6 +119,67 @@ func NewProjectsCommand(cfg *workingon.Config) *cobra.Command {
 		"Include archived projects")
 
 	return projectsCommand
+}
+
+// emitProjects answers with the projects that can be booked against, and which
+// of them a new entry would land in.
+//
+// It walks the sources itself rather than sharing the table's loop: there is no
+// spinner to run and no column to leave out, and the selected project is a
+// field here rather than a marker beside a row.
+func emitProjects(cfg *workingon.Config, sources []string, includeArchived bool) error {
+	type projectJSON struct {
+		Source   string `json:"source"`
+		Key      string `json:"key"`
+		Id       int    `json:"id,omitempty"`
+		Name     string `json:"name"`
+		Archived bool   `json:"archived"`
+		Current  bool   `json:"current"`
+	}
+
+	currentPid := workingon.CurrentProject(cfg)
+	currentKey := ""
+	if currentPid != 0 {
+		currentKey = strconv.Itoa(currentPid)
+	}
+
+	listed := make([]projectJSON, 0)
+
+	for _, source := range workingon.Registry.RegisteredSources {
+		if len(sources) > 0 && !util.StringInSliceI(source.GetName(), sources) {
+			continue
+		}
+
+		projects, err := source.GetProjects(includeArchived)
+		if err != nil {
+			return err
+		}
+
+		for _, project := range projects {
+			listed = append(listed, projectJSON{
+				Source:   source.GetName(),
+				Key:      project.Key,
+				Id:       project.TogglProject,
+				Name:     project.Name,
+				Archived: project.Archived,
+				Current:  currentKey != "" && project.Key == currentKey,
+			})
+		}
+	}
+
+	return emit(struct {
+		Projects       []projectJSON `json:"projects"`
+		CurrentProject *int          `json:"current_project"`
+	}{listed, optionalId(currentPid)})
+}
+
+// optionalId is an id that may not be set at all, as null rather than as a zero
+// that has to be known to mean nothing.
+func optionalId(id int) *int {
+	if id == 0 {
+		return nil
+	}
+	return &id
 }
 
 // selectedColour marks the project a new entry would be filed under. color

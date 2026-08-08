@@ -1,6 +1,7 @@
 package workingon
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -394,6 +395,204 @@ func TestNewSanitizerReportsSettingsItCannotRead(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if _, err := NewSanitizer(&cfg); err == nil {
 				t.Error("read it without complaint, want an error")
+			}
+		})
+	}
+}
+
+// endsAt is the sanitizer with a time of day work stops at.
+func endsAt(s Sanitizer, hour, minute int) Sanitizer {
+	end := hour*60 + minute
+	s.DayEnds = &end
+
+	return s
+}
+
+// theNightBefore is the same time of day, a day earlier - where an entry that
+// outlived its day began.
+func theNightBefore(moment time.Time) time.Time {
+	return moment.AddDate(0, 0, -1)
+}
+
+// only is the one adjustment a plan was expected to hold.
+func only(t *testing.T, s Sanitizer, entries ...toggl.TimeEntry) Adjustment {
+	t.Helper()
+
+	plan := s.Plan(entries)
+	if len(plan) != 1 {
+		t.Fatalf("plan has %d adjustments, want exactly one: %v", len(plan), plan)
+	}
+
+	return plan[0]
+}
+
+// The case this was written for: an entry that was left going when the laptop
+// was closed did not run until the next morning, it ran until the day ended.
+func TestSanitizeCapsAnEntryThatRanOvernight(t *testing.T) {
+	loc := berlin(t)
+	s := endsAt(tidy(loc), 18, 0)
+
+	got := only(t, s, tracked("DBQ import",
+		theNightBefore(at(loc, 17, 3, 0)), at(loc, 9, 12, 0)))
+
+	if span := spanned(got, loc); span != "17:05-18:00" {
+		t.Errorf("span = %s, want it cut back to 17:05-18:00", span)
+	}
+	if !strings.Contains(got.Note(), "capped at end of day") {
+		t.Errorf("note = %q, want it to say the day ended", got.Note())
+	}
+}
+
+// The same night, found the next morning with the timer still going. This is
+// the one an unstopped entry actually leaves behind.
+func TestSanitizeStopsATimerLeftRunningOvernight(t *testing.T) {
+	loc := berlin(t)
+
+	s := endsAt(tidy(loc), 18, 0)
+	s.Now = func() time.Time { return at(loc, 9, 12, 0) }
+
+	got := only(t, s, running("DBQ import", theNightBefore(at(loc, 17, 3, 0))))
+
+	if span := spanned(got, loc); span != "17:05-18:00" {
+		t.Errorf("span = %s, want it ended at 17:05-18:00", span)
+	}
+	if !strings.Contains(got.Note(), "stopped at end of day") {
+		t.Errorf("note = %q, want it to say the timer was stopped", got.Note())
+	}
+}
+
+// A timer running now, on the day it started, is still the entry you are in the
+// middle of - the cap is for one that outlived its day, not for this.
+func TestSanitizeLeavesATimerRunningWithinItsDayAlone(t *testing.T) {
+	loc := berlin(t)
+	s := endsAt(tidy(loc), 18, 0)
+
+	if plan := s.Plan([]toggl.TimeEntry{running("DBQ import", at(loc, 16, 0, 0))}); len(plan) != 0 {
+		t.Errorf("plan = %v, want a running timer left where it is", plan)
+	}
+}
+
+// Nobody who has not said when their day ends gets their entries shortened by a
+// guess at it.
+func TestSanitizeWithoutADayEndLeavesTheNightAlone(t *testing.T) {
+	loc := berlin(t)
+
+	got := only(t, tidy(loc), tracked("DBQ import",
+		theNightBefore(at(loc, 17, 3, 0)), at(loc, 9, 12, 0)))
+
+	if span := spanned(got, loc); span != "17:05-09:10" {
+		t.Errorf("span = %s, want only the snapping, 17:05-09:10", span)
+	}
+	if strings.Contains(got.Note(), "end of day") {
+		t.Errorf("note = %q, want no mention of an end of day", got.Note())
+	}
+}
+
+// An entry begun after the day was already over has no honest end to be given,
+// and cutting it back to before it started would be worse than leaving it.
+func TestSanitizeDoesNotCapAnEntryBegunAfterTheDayEnded(t *testing.T) {
+	loc := berlin(t)
+	s := endsAt(tidy(loc), 18, 0)
+
+	got := only(t, s, tracked("DBQ import",
+		theNightBefore(at(loc, 23, 0, 0)), at(loc, 9, 12, 0)))
+
+	if span := spanned(got, loc); span != "23:00-09:10" {
+		t.Errorf("span = %s, want it left at 23:00-09:10", span)
+	}
+	if strings.Contains(got.Note(), "end of day") {
+		t.Errorf("note = %q, want no mention of an end of day", got.Note())
+	}
+}
+
+// Rounding must not carry an entry back over the cap it was just given.
+func TestSanitizeDoesNotSnapPastTheEndOfTheDay(t *testing.T) {
+	loc := berlin(t)
+	s := endsAt(tidy(loc), 17, 58)
+
+	got := only(t, s, tracked("DBQ import",
+		theNightBefore(at(loc, 17, 3, 0)), at(loc, 9, 12, 0)))
+
+	if span := spanned(got, loc); span != "17:05-17:58" {
+		t.Errorf("span = %s, want the cap kept at 17:05-17:58", span)
+	}
+}
+
+// An entry before a capped one closes the gap up to it as it would to any
+// other, so capping does not leave a hole where the afternoon was.
+func TestSanitizeClosesTheGapUpToACappedEntry(t *testing.T) {
+	loc := berlin(t)
+	s := endsAt(tidy(loc), 18, 0)
+
+	plan := planFor(t, s,
+		tracked("Standup", theNightBefore(at(loc, 9, 0, 0)), theNightBefore(at(loc, 10, 2, 0))),
+		tracked("DBQ import", theNightBefore(at(loc, 17, 3, 0)), at(loc, 9, 12, 0)))
+
+	if got := plan["DBQ import"]; got != "17:05-18:00" {
+		t.Errorf("DBQ import = %s, want it held at 17:05-18:00", got)
+	}
+	if got := plan["Standup"]; got != "09:00-17:05" {
+		t.Errorf("Standup = %s, want it to close the gap up to 17:05", got)
+	}
+}
+
+// Closing the gaps must not hand straight back the evening the cap took away.
+// It takes an entry after the capped one to ask for it - work that really was
+// done that evening, which is no reason to restore the hours before it.
+func TestSanitizeDoesNotStretchACappedEntryPastTheEndOfTheDay(t *testing.T) {
+	loc := berlin(t)
+	s := endsAt(tidy(loc), 18, 0)
+
+	plan := planFor(t, s,
+		tracked("DBQ import", theNightBefore(at(loc, 17, 3, 0)), at(loc, 9, 12, 0)),
+		tracked("Release", theNightBefore(at(loc, 19, 0, 0)), theNightBefore(at(loc, 20, 2, 0))))
+
+	if got := plan["DBQ import"]; got != "17:05-18:00" {
+		t.Errorf("DBQ import = %s, want it held at the cap, 17:05-18:00", got)
+	}
+	if got := plan["Release"]; got != "19:00-20:00" {
+		t.Errorf("Release = %s, want only the snapping, 19:00-20:00", got)
+	}
+}
+
+func TestParseDayEnds(t *testing.T) {
+	for name, tc := range map[string]struct {
+		value string
+		want  int
+		unset bool
+		fails bool
+	}{
+		"a time of day":     {value: "18:00", want: 18 * 60},
+		"a bare hour":       {value: "18", want: 18 * 60},
+		"padded":            {value: " 17:30 ", want: 17*60 + 30},
+		"midnight":          {value: "24:00", want: 24 * 60},
+		"left out":          {value: "", unset: true},
+		"the day's start":   {value: "0:00", fails: true},
+		"not a time at all": {value: "evening", fails: true},
+		"a duration":        {value: "18h", fails: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := parseDayEnds(tc.value)
+
+			if tc.fails {
+				if err == nil {
+					t.Fatalf("read %q as %v, want an error", tc.value, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseDayEnds(%q): %v", tc.value, err)
+			}
+
+			if tc.unset {
+				if got != nil {
+					t.Errorf("dayEnds = %v, want none at all", *got)
+				}
+				return
+			}
+
+			if got == nil || *got != tc.want {
+				t.Errorf("dayEnds = %v, want %d", got, tc.want)
 			}
 		})
 	}

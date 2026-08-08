@@ -28,6 +28,7 @@ func TestNeedsConfig(t *testing.T) {
 		{child(root, "init"), false},
 		{child(root, "version"), false},
 		{child(root, "help"), false},
+		{child(root, "where"), false},
 		{completion, false},
 
 		// A shell asks the subcommand, not the parent.

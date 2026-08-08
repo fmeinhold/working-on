@@ -84,6 +84,7 @@ homebrew_casks:
     commit_msg_template: "wo: update to {{ .Tag }}"
     caveats: |
       Run `wo init` to set up your toggl track API token and config.
+      `wo skill --install` adds the Claude Code skill for driving it.
     completions:
       bash: completions/wo.bash
       zsh: completions/wo.zsh

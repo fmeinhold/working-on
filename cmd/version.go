@@ -16,7 +16,18 @@ var (
 	date    = ""
 )
 
-func versionString() string {
+// buildJSON is what this binary is, in parts - the same facts versionString
+// runs together into a line.
+type buildJSON struct {
+	Version string `json:"version"`
+	Commit  string `json:"commit,omitempty"`
+	Date    string `json:"date,omitempty"`
+	Os      string `json:"os"`
+	Arch    string `json:"arch"`
+	Go      string `json:"go"`
+}
+
+func buildInfo() buildJSON {
 	v, c, d := version, commit, date
 
 	if v == "" || c == "" {
@@ -46,14 +57,28 @@ func versionString() string {
 		c = c[:7]
 	}
 
-	s := v
-	if c != "" {
-		s += fmt.Sprintf(" (%s)", c)
+	return buildJSON{
+		Version: v,
+		Commit:  c,
+		Date:    d,
+		Os:      runtime.GOOS,
+		Arch:    runtime.GOARCH,
+		Go:      runtime.Version(),
 	}
-	if d != "" {
-		s += fmt.Sprintf(" built %s", d)
+}
+
+func versionString() string {
+	info := buildInfo()
+
+	s := info.Version
+	if info.Commit != "" {
+		s += fmt.Sprintf(" (%s)", info.Commit)
 	}
-	return fmt.Sprintf("%s %s/%s %s", s, runtime.GOOS, runtime.GOARCH, runtime.Version())
+	if info.Date != "" {
+		s += fmt.Sprintf(" built %s", info.Date)
+	}
+
+	return fmt.Sprintf("%s %s/%s %s", s, info.Os, info.Arch, info.Go)
 }
 
 func NewVersionCommand() *cobra.Command {
@@ -61,8 +86,13 @@ func NewVersionCommand() *cobra.Command {
 		Use:   "version",
 		Short: "Print the version of wo",
 		Args:  cobra.NoArgs,
-		Run: func(cmd *cobra.Command, args []string) {
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if jsonOutput {
+				return emit(buildInfo())
+			}
+
 			fmt.Fprintln(cmd.OutOrStdout(), versionString())
+			return nil
 		},
 	}
 }

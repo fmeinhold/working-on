@@ -127,6 +127,9 @@ can lead them:
 				if err != nil {
 					return err
 				}
+				if jsonOutput {
+					return emitEntry("added", timeEntry, cfg)
+				}
 				fmt.Println(timeEntry.Format(cfg.Settings.DateTimeLayout, &cfg.Settings.Location))
 
 				return nil

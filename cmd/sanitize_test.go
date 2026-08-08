@@ -120,14 +120,16 @@ func TestConfirmSanitizeAsksBeforeSaving(t *testing.T) {
 // A flag is for this one run, and says what the config does not.
 func TestSanitizeFlagsOverrideTheConfig(t *testing.T) {
 	cfg := sanitizeConfig()
-	cfg.Sanitize = workingon.SanitizeConfig{Snap: "5m", Short: "15m"}
+	cfg.Sanitize = workingon.SanitizeConfig{Snap: "5m", Short: "15m", DayEnds: "18:00"}
 
 	command := NewSanitizeCommand(cfg)
-	if err := command.Flags().Set("snap", "0"); err != nil {
-		t.Fatal(err)
+	for name, value := range map[string]string{"snap": "0", "day-ends": "20:00"} {
+		if err := command.Flags().Set(name, value); err != nil {
+			t.Fatal(err)
+		}
 	}
 
-	sanitizer, err := newSanitizer(cfg, command, "0", "")
+	sanitizer, err := newSanitizer(cfg, command, "0", "", "20:00")
 	if err != nil {
 		t.Fatalf("newSanitizer: %v", err)
 	}
@@ -137,5 +139,8 @@ func TestSanitizeFlagsOverrideTheConfig(t *testing.T) {
 	}
 	if sanitizer.Short != 15*time.Minute {
 		t.Errorf("short = %s, want the configured 15m", sanitizer.Short)
+	}
+	if sanitizer.DayEnds == nil || *sanitizer.DayEnds != 20*60 {
+		t.Errorf("dayEnds = %v, want the flag's 20:00", sanitizer.DayEnds)
 	}
 }

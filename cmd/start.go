@@ -86,6 +86,9 @@ starts until you stop it.`,
 				if err != nil {
 					return err
 				}
+				if jsonOutput {
+					return emitEntry("continued", timeEntry, cfg)
+				}
 				fmt.Printf("Continuing: %s \n",
 					timeEntry.Format(cfg.Settings.DateTimeLayout, &cfg.Settings.Location))
 				return nil
@@ -123,6 +126,9 @@ starts until you stop it.`,
 			})
 			if err != nil {
 				return err
+			}
+			if jsonOutput {
+				return emitEntry("started", timeEntry, cfg)
 			}
 			fmt.Printf("Started tracking for: %s \n", timeEntry.Format(cfg.Settings.DateTimeLayout, &cfg.Settings.Location))
 

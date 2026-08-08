@@ -778,10 +778,15 @@ templates: []
 # How ` + "`wo sanitize`" + ` tidies a day. no_work are hours nothing is stretched
 # into, as "12:00-13:00"; snap is the grid times are rounded to, and short the
 # length under which an entry takes the gaps around it. Write "0" for none.
+#
+# day_ends is when work stops, as "18:00". An entry that outlived it is cut back
+# there, which is what a timer left running overnight comes to. Empty caps
+# nothing.
 sanitize:
   snap: "5m"
   short: "15m"
   no_work: []
+  day_ends: ""
 
 
 # Task sources other than toggl. Toggl is built in and takes its credentials

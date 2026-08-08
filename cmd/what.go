@@ -24,6 +24,10 @@ worth of entries, see ` + "`wo show`" + `.`,
 				return err
 			}
 
+			if jsonOutput {
+				return emitCurrent(current, cfg)
+			}
+
 			prompt, _ := cmd.Flags().GetBool("prompt")
 			fmt.Print(RenderCurrent(current, cfg, prompt))
 

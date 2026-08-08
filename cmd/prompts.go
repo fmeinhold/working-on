@@ -29,8 +29,12 @@ func describer(cfg *workingon.Config) workingon.Describer {
 
 // interactive reports whether there is anybody at the other end to answer a
 // question.
+//
+// A run that asked for JSON is a program reading the output, and a program
+// cannot answer a prompt - it would sit waiting on an answer that never comes,
+// having already been given a document it could not parse.
 func interactive() bool {
-	return isatty.IsTerminal(os.Stdin.Fd())
+	return !jsonOutput && isatty.IsTerminal(os.Stdin.Fd())
 }
 
 func describerFor(cfg *workingon.Config, in io.Reader, out io.Writer, interactive bool) workingon.Describer {

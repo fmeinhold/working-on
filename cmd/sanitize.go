@@ -16,10 +16,11 @@ import (
 
 func NewSanitizeCommand(cfg *workingon.Config) *cobra.Command {
 	var (
-		dry   bool
-		yes   bool
-		snap  string
-		short string
+		dry     bool
+		yes     bool
+		snap    string
+		short   string
+		dayEnds string
 	)
 
 	sanitizeCommand := &cobra.Command{
@@ -42,6 +43,12 @@ and a gap over lunch stays a gap:
     no_work:
       - "12:00-13:00"
 
+day_ends is the time work stops, and is what a timer left running overnight is
+cut back to - including one that is still going, which is ended there:
+
+  sanitize:
+    day_ends: "18:00"
+
 Nothing is created and nothing is deleted - only the start and stop times of
 entries that are already there move, and an entry that overlaps a no work zone
 because that is when you worked is left as it is. What would change is shown
@@ -60,7 +67,7 @@ weekday name for the most recent such day, or a date in your configured layout.`
 				day = parsed
 			}
 
-			sanitizer, err := newSanitizer(cfg, cmd, snap, short)
+			sanitizer, err := newSanitizer(cfg, cmd, snap, short, dayEnds)
 			if err != nil {
 				return err
 			}
@@ -78,6 +85,20 @@ weekday name for the most recent such day, or a date in your configured layout.`
 			plan := sanitizer.Plan(entries)
 
 			names := &dayNames{}
+
+			// Asked for JSON there is nobody to put the question to, so --yes
+			// is the only thing that can answer it. Saying so in the document
+			// beats a plan that looks applied and was not.
+			if jsonOutput {
+				save := len(plan) > 0 && !dry && yes
+				if save {
+					if err := saveSanitizePlan(cfg, plan); err != nil {
+						return err
+					}
+				}
+				return emitSanitizePlan(start, plan, cfg, names.names, save)
+			}
+
 			fmt.Print(RenderSanitizePlan(start, plan, sanitizer, cfg, names.names))
 
 			if len(plan) == 0 || dry {
@@ -98,13 +119,15 @@ weekday name for the most recent such day, or a date in your configured layout.`
 		"Grid times are rounded to, 0 to leave them alone (default 5m)")
 	sanitizeCommand.Flags().StringVar(&short, "short", "",
 		"Length under which an entry is a stub that takes the gaps around it (default 15m)")
+	sanitizeCommand.Flags().StringVar(&dayEnds, "day-ends", "",
+		"Time work stops, as \"18:00\", that an entry running past it is cut back to")
 
 	return sanitizeCommand
 }
 
 // newSanitizer reads the sanitize settings, letting the flags say otherwise for
 // this one run.
-func newSanitizer(cfg *workingon.Config, cmd *cobra.Command, snap, short string) (workingon.Sanitizer, error) {
+func newSanitizer(cfg *workingon.Config, cmd *cobra.Command, snap, short, dayEnds string) (workingon.Sanitizer, error) {
 	settings := cfg.Sanitize
 
 	if cmd.Flags().Changed("snap") {
@@ -112,6 +135,9 @@ func newSanitizer(cfg *workingon.Config, cmd *cobra.Command, snap, short string)
 	}
 	if cmd.Flags().Changed("short") {
 		settings.Short = short
+	}
+	if cmd.Flags().Changed("day-ends") {
+		settings.DayEnds = dayEnds
 	}
 
 	return workingon.NewSanitizer(&workingon.Config{Settings: cfg.Settings, Sanitize: settings})
@@ -247,10 +273,9 @@ func applySanitizePlan(cfg *workingon.Config, plan []workingon.Adjustment) error
 	clock := timeLayout(cfg)
 
 	for _, adjustment := range plan {
-		saved, err := workingon.Sanitize(cfg, adjustment)
+		saved, err := saveAdjustment(cfg, adjustment)
 		if err != nil {
-			return fmt.Errorf("unable to save %q: %w",
-				describedAs(adjustment.Entry.Description), err)
+			return err
 		}
 
 		fmt.Printf("  %s  %s\n",
@@ -261,4 +286,28 @@ func applySanitizePlan(cfg *workingon.Config, plan []workingon.Adjustment) error
 	fmt.Printf("\nTidied %s.\n", pluralEntries(len(plan)))
 
 	return nil
+}
+
+// saveSanitizePlan writes a whole plan back without saying anything about it,
+// for the caller that is about to describe the result itself.
+func saveSanitizePlan(cfg *workingon.Config, plan []workingon.Adjustment) error {
+	for _, adjustment := range plan {
+		if _, err := saveAdjustment(cfg, adjustment); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// saveAdjustment writes one entry back, naming it in any failure - a plan that
+// stopped halfway through is worth being specific about.
+func saveAdjustment(cfg *workingon.Config, adjustment workingon.Adjustment) (*toggl.TimeEntry, error) {
+	saved, err := workingon.Sanitize(cfg, adjustment)
+	if err != nil {
+		return nil, fmt.Errorf("unable to save %q: %w",
+			describedAs(adjustment.Entry.Description), err)
+	}
+
+	return saved, nil
 }

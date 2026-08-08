@@ -63,6 +63,10 @@ shortened to the day or the day and month if you like - with a layout of
 			entries := entriesStartingOn(start, listed.TimeEntries)
 			names := &dayNames{}
 
+			if jsonOutput {
+				return emitDay(start, entries, cfg, names.names)
+			}
+
 			if list {
 				fmt.Print(RenderDay(start, entries, cfg, names.names))
 				return nil

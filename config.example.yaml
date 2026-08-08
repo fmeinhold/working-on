@@ -107,12 +107,17 @@ templates:
 # no_work are the hours nothing may be stretched into. A gap over one of them
 # stays a gap, and an entry that genuinely overlaps one is left as it is.
 #
+# day_ends is when work stops, and is what a timer left running overnight is cut
+# back to - including one still going, which is ended there. Left out, as it is
+# here, nothing is capped: an entry is only ever shortened by a time you set.
+#
 # snap and short are durations. Leave one out for the default shown here; write
 # "0" to turn that part of the tidying off.
 sanitize:
   snap: "5m"
   short: "15m"
   no_work: []
+  day_ends: ""
 
 
 # Configuration for task sources other than toggl. Toggl is built in and takes

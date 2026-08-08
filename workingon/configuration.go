@@ -35,6 +35,11 @@ type SanitizeConfig struct {
 
 	// NoWork are spans of the day nothing is stretched into, as "12:00-13:00".
 	NoWork []string `mapstructure:"no_work"`
+
+	// DayEnds is the time of day work stops, as "18:00". An entry still running
+	// past it is ended there rather than left to run overnight. Empty where
+	// there is no such time, and nothing is capped.
+	DayEnds string `mapstructure:"day_ends"`
 }
 
 type Settings struct {

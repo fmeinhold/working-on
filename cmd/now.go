@@ -25,6 +25,10 @@ func NewNowCommand(cfg *workingon.Config) *cobra.Command {
 				return err
 			}
 
+			if jsonOutput {
+				return emitCurrent(current, cfg)
+			}
+
 			prompt, _ := cmd.Flags().GetBool("prompt")
 			fmt.Print(RenderCurrent(current, cfg, prompt))
 

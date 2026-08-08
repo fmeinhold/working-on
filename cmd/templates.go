@@ -26,7 +26,13 @@ The project and task a template pins are named where they can be looked up, and
 left as ids where they cannot.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Print(renderTemplates(cfg.Templates, lookupTemplateLabels(cfg.Templates)))
+			labels := lookupTemplateLabels(cfg.Templates)
+
+			if jsonOutput {
+				return emitTemplates(cfg.Templates, labels)
+			}
+
+			fmt.Print(renderTemplates(cfg.Templates, labels))
 			return nil
 		},
 	}
@@ -68,7 +74,11 @@ func lookupTemplateLabels(templates []workingon.TemplateConfig) templateLabels {
 		StopCharacter: "✓",
 		StopColors:    []string{"fgGreen"},
 	})
-	if err == nil {
+
+	// No spinner where the output is a document: it writes to the same stream,
+	// and would land in the middle of it.
+	spin := err == nil && !jsonOutput
+	if spin {
 		spinner.Start()
 	}
 
@@ -84,7 +94,7 @@ func lookupTemplateLabels(templates []workingon.TemplateConfig) templateLabels {
 		}
 	}
 
-	if err == nil {
+	if spin {
 		spinner.Stop()
 	}
 
@@ -97,6 +107,39 @@ func lookupTemplateLabels(templates []workingon.TemplateConfig) templateLabels {
 //
 // Config order is kept rather than sorted - that is the order they were
 // written in, and re-arranging someone's own list helps nobody.
+// emitTemplates answers with the aliases that can be booked, and what each one
+// stands for.
+//
+// The start and stop are left as the times of day the config gives, since that
+// is what they are - a template is not dated until it is booked.
+func emitTemplates(templates []workingon.TemplateConfig, labels templateLabels) error {
+	type templateJSON struct {
+		Alias       string `json:"alias"`
+		Description string `json:"description"`
+		Project     *ref   `json:"project"`
+		Task        *ref   `json:"task"`
+		Start       string `json:"start,omitempty"`
+		Stop        string `json:"stop,omitempty"`
+	}
+
+	listed := make([]templateJSON, 0, len(templates))
+
+	for _, template := range templates {
+		listed = append(listed, templateJSON{
+			Alias:       template.Alias,
+			Description: template.Description,
+			Project:     named(template.TogglPid, labels.projects[template.TogglPid]),
+			Task:        named(template.TogglTask, labels.tasks[template.TogglTask]),
+			Start:       template.Start,
+			Stop:        template.Stop,
+		})
+	}
+
+	return emit(struct {
+		Templates []templateJSON `json:"templates"`
+	}{listed})
+}
+
 func renderTemplates(templates []workingon.TemplateConfig, labels templateLabels) string {
 	if len(templates) == 0 {
 		return "\nNo templates configured. Add them under `templates:` in your config " +

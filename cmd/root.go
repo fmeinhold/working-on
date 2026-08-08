@@ -20,6 +20,10 @@ __  _  _____________|  | _|__| ____    ____     ____   ____
 
 `,
 		SilenceUsage: true,
+
+		// Errors are printed below instead, so that a run asking for JSON is
+		// answered with JSON whether it went well or badly.
+		SilenceErrors: true,
 	}
 )
 
@@ -60,13 +64,23 @@ func Execute() {
 		NewContinueCommand(cfg),
 		NewCacheCommand(cfg),
 		NewInitCommand(cfg),
+		NewWhereCommand(cfg),
+		NewSkillCommand(),
 		NewVersionCommand(),
 	)
+
+	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false,
+		"Print the result as JSON, for another program to read")
 
 	rootCmd.Version = versionString()
 	rootCmd.SetVersionTemplate("{{.Version}}\n")
 
 	if err := rootCmd.Execute(); err != nil {
+		if jsonOutput {
+			emitError(err)
+		} else {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+		}
 		os.Exit(1)
 	}
 }
@@ -76,9 +90,19 @@ func Execute() {
 // complete, or someone asking what any of this does, should not be answered
 // with a complaint about a file they have not written yet.
 var configlessCommands = map[string]bool{
-	"init":                          true,
-	"version":                       true,
-	"help":                          true,
+	"init":    true,
+	"version": true,
+	"help":    true,
+
+	// `where` answers with what it found, and finding nothing is one of the
+	// answers - refusing to say so because there is no config would leave the
+	// one command that could explain the situation unable to run in it.
+	"where": true,
+
+	// `skill` writes a file out of the binary. Setting the agent up before
+	// setting toggl up is a reasonable order to do things in.
+	"skill": true,
+
 	"completion":                    true,
 	cobra.ShellCompRequestCmd:       true,
 	cobra.ShellCompNoDescRequestCmd: true,

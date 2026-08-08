@@ -123,6 +123,15 @@ type Sanitizer struct {
 	// Zones are the spans of the day nothing may be stretched into.
 	Zones []Zone
 
+	// DayEnds is the time of day work stops, in minutes since midnight. An
+	// entry that outlives it is cut back to it, and a timer still running past
+	// it is ended there - which is what a day left running overnight looks
+	// like. Nil where no such time is set, and nothing is capped.
+	//
+	// It is a time of day rather than an instant, for the same reason a Zone
+	// is: it is 18:00 that the day ends at, whichever day is being tidied.
+	DayEnds *int
+
 	// Location is the zone the day is read in.
 	Location *time.Location
 
@@ -148,12 +157,39 @@ func NewSanitizer(cfg *Config) (Sanitizer, error) {
 		return Sanitizer{}, err
 	}
 
+	dayEnds, err := parseDayEnds(cfg.Sanitize.DayEnds)
+	if err != nil {
+		return Sanitizer{}, err
+	}
+
 	return Sanitizer{
 		Snap:     snap,
 		Short:    short,
 		Zones:    zones,
+		DayEnds:  dayEnds,
 		Location: &cfg.Settings.Location,
 	}, nil
+}
+
+// parseDayEnds reads the time of day work stops. Left out, there is no such
+// time and nothing is capped - which is why this answers with a pointer rather
+// than reaching for a default. Guessing when someone's day ends and quietly
+// shortening their entries by it is not a thing to do uninvited.
+func parseDayEnds(value string) (*int, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
+	}
+
+	minute, err := parseClockMinute(value)
+	if err != nil {
+		return nil, fmt.Errorf("sanitize day_ends: %w", err)
+	}
+	if minute == 0 {
+		return nil, fmt.Errorf("sanitize day_ends: %q would end the day before it began", value)
+	}
+
+	return &minute, nil
 }
 
 // parseTidyDuration reads a setting that is a duration, taking the default only
@@ -200,7 +236,21 @@ type span struct {
 	// no end to place, and where it began is where you began it.
 	fixed bool
 
+	// ceiling is as far forward as this entry may run, for one that was cut
+	// back to the end of the day. Without it the tidying that follows would
+	// hand straight back the evening the cap just took away. Zero where
+	// nothing bounds the entry.
+	ceiling time.Time
+
 	notes []string
+}
+
+// under holds a time to the entry's ceiling, where it has one.
+func (s *span) under(moment time.Time) time.Time {
+	if !s.ceiling.IsZero() && moment.After(s.ceiling) {
+		return s.ceiling
+	}
+	return moment
 }
 
 func (s *span) note(what string) {
@@ -220,6 +270,7 @@ func (s *span) isStub(short time.Duration) bool {
 }
 
 func (s *span) stretchForward(to time.Time) {
+	to = s.under(to)
 	if !to.After(s.newFinish) {
 		return
 	}
@@ -283,11 +334,14 @@ func (s Sanitizer) spans(entries []toggl.TimeEntry) []*span {
 			}
 		}
 
-		spans = append(spans, &span{
+		sp := &span{
 			entry: entry, begin: begin, finish: finish,
 			newBegin: begin, newFinish: finish,
 			fixed: entry.IsRunning(),
-		})
+		}
+		s.capToDayEnd(sp)
+
+		spans = append(spans, sp)
 	}
 
 	sort.SliceStable(spans, func(i, j int) bool {
@@ -295,6 +349,41 @@ func (s Sanitizer) spans(entries []toggl.TimeEntry) []*span {
 	})
 
 	return spans
+}
+
+// capToDayEnd cuts an entry back to the time of day work stops.
+//
+// This is what a timer left running overnight comes to. It did not run until
+// you opened the laptop again the next morning; it ran until you left, and the
+// end of the day is the closest thing to that anyone can say afterwards. A
+// timer still going is ended there too - the entry has already outlived the
+// day it belongs to, so there is nothing left worth leaving alone.
+func (s Sanitizer) capToDayEnd(sp *span) {
+	if s.DayEnds == nil {
+		return
+	}
+
+	end := startOfDate(sp.begin).Add(time.Duration(*s.DayEnds) * time.Minute)
+
+	// An entry that began after the day was already over is not one this can
+	// help: there is no honest end to give it, and pulling it back to before it
+	// started would be worse than the overlong entry it replaced.
+	if !sp.finish.After(end) || !end.After(sp.begin) {
+		return
+	}
+
+	if sp.fixed {
+		sp.note("stopped at end of day")
+	} else {
+		sp.note("capped at end of day")
+	}
+
+	// Cut short, it is an ordinary entry again - it has an end, so the rest of
+	// the tidying may round it off and close the gaps around it as it would any
+	// other. The ceiling is what keeps that from undoing the cap.
+	sp.finish, sp.newFinish = end, end
+	sp.fixed = false
+	sp.ceiling = end
 }
 
 // snapToGrid rounds ragged times off, so a day reads as clock times rather than
@@ -310,7 +399,10 @@ func (s Sanitizer) snapToGrid(spans []*span) {
 		}
 
 		begin := roundTo(sp.begin, s.Snap)
-		finish := roundTo(sp.finish, s.Snap)
+
+		// Rounding an end of day that does not sit on the grid would carry the
+		// entry back past the cap it was just given.
+		finish := sp.under(roundTo(sp.finish, s.Snap))
 
 		// An entry shorter than the grid would round away to nothing. It is a
 		// stub, and closing the gaps around it is about to give it a length -

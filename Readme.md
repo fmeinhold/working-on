@@ -91,6 +91,82 @@ wo init
 `--global` and `--local` pick which of the two files is written when the guess is wrong. A repository you never run
 it in is not broken - entries from there just fall back to the global default project.
 
+`wo where` answers which of the two files applies where you are standing, and where an entry started there would
+land:
+
+```
+$ wo where
+Directory      /Users/felix/Source/some-project/lib
+Repository     /Users/felix/Source/some-project
+Config         /Users/felix/.config/working_on/config.yaml
+Project        Learning Platform Development (188362780)
+```
+
+The overlay is looked for from the working directory upwards, so a subdirectory of a checkout answers with the
+checkout. It needs no config of its own, so it still runs - and still explains itself - in a repository that has
+never been set up.
+
+## JSON
+
+Every command that prints anything takes `--json` and answers with one document instead:
+
+```
+$ wo now --json
+{
+  "running": true,
+  "entry": {
+    "id": 4510033242,
+    "description": "DBQ import",
+    "project": { "id": 188362780, "name": "Learning Platform Development" },
+    "task": { "id": 87708632, "name": "05 Front End Development" },
+    "start": "2026-08-07T07:45:00-04:00",
+    "seconds": 7800,
+    "running": true,
+    "workspace_id": 1562374
+  }
+}
+```
+
+Times are RFC 3339 in your configured zone, so the offset records where the day was worked. Lengths are in seconds -
+the one form that needs no parsing and cannot be read two ways - and for a running timer it is how far it has got.
+A `project` or `task` is `null` where the entry has none, and its `name` is left out where the id could not be
+looked up, so the id always stands on its own.
+
+A failure is a document too, on stderr, with nothing at all on stdout - so whatever arrives on stdout can be parsed
+without checking whether it is an error first:
+
+```
+$ wo stop --json
+{
+  "error": "no time entry is currently running"
+}
+```
+
+`--json` also means nobody is there to be asked. Anything `wo` would have put as a question - which task, what to
+call an entry that has no description - is an error instead, so it never sits waiting on an answer that is not
+coming. Name the task with `--task` where the workspace requires one, and `wo sanitize --json` saves only with
+`--yes`, reporting which it did as `saved`.
+
+## Claude Code
+
+`wo skill` prints a [Claude Code](https://claude.com/claude-code) skill built on the JSON above, for starting and
+stopping timers from an editor session. `--install` puts it where Claude Code looks:
+
+```
+wo skill --install
+```
+
+That writes `~/.claude/skills/wo/SKILL.md` - or the same path under `$CLAUDE_CONFIG_DIR` where you have set one,
+and `--dir` says somewhere else outright. The skill is embedded in the binary, so a homebrew install can write it
+without a checkout to copy from. A skill already there is left alone unless `--force` says otherwise, so a run of
+this never quietly discards one you have edited - including the case where you symlinked a checkout into place and
+overwriting would edit the checkout.
+
+It gates itself on `wo where`: it offers to start a timer in a checkout that has a `.workingon.yaml` and stays
+quiet in every other one, on the grounds that most repositories are not ones you book time against.
+
+Without `--install` it goes to stdout, which is the version to read before letting an agent act on it.
+
 ## Projects
 
 A time entry's project is resolved in this order:
@@ -319,8 +395,9 @@ and ragged times are rounded to the nearest five minutes on the way. `--snap` an
 run, and `--snap 0` leaves the times exactly where they are.
 
 Nothing is created and nothing is deleted - only the start and stop times of entries that are already there move.
-The ends of the day are left where they are, a timer that is still running is not touched, and two entries that
-already overlap are left to you. What would change is always shown first: `--dry` shows it and stops, `--yes` saves
+The ends of the day are left where they are, and two entries that already overlap are left to you. A timer that is
+still running is not touched either, unless it has outlived the day it started in and you have said when that is -
+see [the end of the day](#the-end-of-the-day). What would change is always shown first: `--dry` shows it and stops, `--yes` saves
 without asking, and a run with nobody to ask changes nothing unless it was given `--yes`.
 
 ### No work zones
@@ -339,6 +416,33 @@ sanitize:
 An entry is never stretched into or across a zone: each side of the gap closes what it can reach and the zone stays
 empty. An entry that genuinely overlaps one - a lunch and learn - is left exactly as it is, since that is time you
 really did work.
+
+### The end of the day
+
+A timer you forget to stop keeps running: you close the laptop on friday evening and monday morning finds a single
+entry seventeen hours long. `day_ends` says when your day is over, and an entry that outlived it is cut back there:
+
+```yaml
+sanitize:
+  day_ends: "18:00"
+```
+
+```
+ Was                    Now                  Description   Why
+---------------------- -------------------- ------------- ----------------------------
+ 17:03-09:12 (16h 9m)   17:05-18:00 (55m)    DBQ import    stopped at end of day, snapped
+```
+
+It applies to the timer that is *still* going, which is the state you usually find these in - that entry is ended
+at the end of its day rather than left alone, the one case where sanitize stops a running timer. It is otherwise
+the same reviewed change as any other: shown first, saved only once you say so.
+
+The day is the one the entry *started* on, so the entry above belongs to `wo sanitize yesterday` even though it was
+still running this morning. `--day-ends` says it for one run without touching your config.
+
+Nothing is capped unless you set it - an entry is only ever shortened by a time you gave. Note that this is a guess
+by nature: it says you worked until six because that is when you usually stop, not because anything recorded it. An
+entry that *began* after the day ended is left alone, since there is no honest end to give it.
 
 ## Entries without a description
 

@@ -38,6 +38,13 @@ func (f taskFilter) name() string {
 // listing was narrowed to, and to tell a live project from an archived one.
 // Left to the caller rather than done on demand, since it costs a round trip.
 func (f taskFilter) resolved() taskFilter {
+	// No spinner where the output is a document - it writes to the same stream
+	// the document goes to.
+	if jsonOutput {
+		f.projects = projectIndex()
+		return f
+	}
+
 	spinner, err := yacspin.New(yacspin.Config{
 		Frequency:     100 * time.Millisecond,
 		CharSet:       yacspin.CharSets[11],
@@ -115,9 +122,15 @@ func loadTasks(source workingon.Source, filter taskFilter) (*taskListing, error)
 		return nil, err
 	}
 
-	spinner.Start()
+	// No spinner where the output is a document: it writes to the same stream,
+	// and would land in the middle of it.
+	if !jsonOutput {
+		spinner.Start()
+	}
 	tasks, err := source.GetTasks()
-	spinner.Stop()
+	if !jsonOutput {
+		spinner.Stop()
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -258,6 +271,61 @@ func taskProjectFilter(cmd *cobra.Command, cfg *workingon.Config) taskFilter {
 	return taskFilter{projectId: workingon.CurrentProject(cfg), includeArchived: archived}
 }
 
+// taskJSON is a task as --json describes it. The key is what `wo start` takes;
+// the id is set only for a task toggl knows natively.
+type taskJSON struct {
+	Source  string `json:"source"`
+	Key     string `json:"key"`
+	Summary string `json:"summary"`
+	Id      int    `json:"id,omitempty"`
+	Project *ref   `json:"project"`
+}
+
+// taskCollector gathers a listing across sources into the one document --json
+// answers with, since a document per source would not be one.
+type taskCollector struct {
+	tasks  []taskJSON
+	hidden int
+}
+
+// add takes the filter as well because a task does not always carry its
+// project's name - the listing looked those up once already, and an id on its
+// own says much less than the name beside it.
+func (c *taskCollector) add(source workingon.Source, listing *taskListing, filter taskFilter) {
+	for _, task := range listing.tasks {
+		name := task.Project.Name
+		if name == "" {
+			name = filter.projects[task.Project.TogglProject].Name
+		}
+
+		c.tasks = append(c.tasks, taskJSON{
+			Source:  source.GetName(),
+			Key:     task.Key,
+			Summary: task.Summary,
+			Id:      task.TogglTask,
+			Project: named(task.Project.TogglProject, name),
+		})
+	}
+
+	c.hidden += listing.hidden
+}
+
+// emit says what the listing covers as well as what is in it - a caller that
+// gets no tasks should be able to tell "this project has none" from "they were
+// all in archived projects" without running the command again.
+func (c *taskCollector) emit(filter taskFilter) error {
+	tasks := c.tasks
+	if tasks == nil {
+		tasks = []taskJSON{}
+	}
+
+	return emit(struct {
+		Tasks          []taskJSON `json:"tasks"`
+		Project        *int       `json:"project"`
+		HiddenArchived int        `json:"hidden_archived"`
+	}{tasks, optionalId(filter.projectId), c.hidden})
+}
+
 func reportTasks(source workingon.Source, listing *taskListing, filter taskFilter) {
 	if len(listing.tasks) > 0 {
 		fmt.Print(renderTasks(source, listing, filter))
@@ -304,6 +372,12 @@ func initConfigTasks(tasksCommand *cobra.Command, cfg *workingon.Config) {
 					return err
 				}
 
+				if jsonOutput {
+					var collected taskCollector
+					collected.add(source, listing, filter)
+					return collected.emit(filter)
+				}
+
 				reportTasks(source, listing, filter)
 				return nil
 			},
@@ -328,6 +402,8 @@ lists them too.`,
 			refresh, _ := cmd.Flags().GetBool("refresh")
 			filter := taskProjectFilter(cmd, cfg).resolved()
 
+			var collected taskCollector
+
 			for _, source := range workingon.Registry.RegisteredSources {
 				if refresh {
 					if err := refreshCache(source); err != nil {
@@ -340,7 +416,16 @@ lists them too.`,
 					return err
 				}
 
+				if jsonOutput {
+					collected.add(source, listing, filter)
+					continue
+				}
+
 				reportTasks(source, listing, filter)
+			}
+
+			if jsonOutput {
+				return collected.emit(filter)
 			}
 
 			return nil

@@ -52,6 +52,9 @@ Shorthand for "wo start --continue".`,
 				return err
 			}
 
+			if jsonOutput {
+				return emitEntry("continued", timeEntry, cfg)
+			}
 			fmt.Printf("Continuing: %s \n",
 				timeEntry.Format(cfg.Settings.DateTimeLayout, &cfg.Settings.Location))
 
