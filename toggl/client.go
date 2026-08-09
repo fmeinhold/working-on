@@ -85,8 +85,6 @@ func (c *Client) NewMessage(method string, endpoint string, data interface{}) (*
 
 }
 
-// SendRequest sends a message, repeating it on transient failures.
-//
 // Only requests that are safe to repeat are retried; see isIdempotent. The
 // whole call, retries included, is bounded by the retry budget.
 func (c *Client) SendRequest(message *Message) (*json.RawMessage, error) {
@@ -124,7 +122,6 @@ func (c *Client) SendRequest(message *Message) (*json.RawMessage, error) {
 	return nil, lastErr
 }
 
-// attempt performs a single send and classifies any failure.
 func (c *Client) attempt(message *Message, payload []byte) (*json.RawMessage, attemptOutcome, error) {
 	var body io.Reader
 	if len(payload) > 0 {

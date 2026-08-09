@@ -2,10 +2,11 @@ package workingon
 
 import (
 	"bytes"
-	"github.com/fefeme/workingon/toggl"
-	"github.com/fefeme/workingon/util"
 	"text/template"
 	"text/template/parse"
+
+	"github.com/fefeme/workingon/toggl"
+	"github.com/fefeme/workingon/util"
 )
 
 // TemplateArgAsker answers for the placeholders in a template's description
@@ -31,9 +32,6 @@ func (t *TemplateConfig) openArgs(templateArgs map[string]string) []string {
 	return open
 }
 
-// answerOpenArgs asks for the placeholders --templateArgs left open, and
-// returns the arguments the description should be rendered with.
-//
 // With nobody to ask - a script, a cron job - the arguments are handed back as
 // they came and an open placeholder renders as "<no value>", which is what it
 // has always done.

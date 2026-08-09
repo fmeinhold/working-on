@@ -14,7 +14,6 @@ func at(hour, minute int) time.Time {
 	return time.Date(2026, 8, 6, hour, minute, 0, 0, berlin())
 }
 
-// tracked builds an entry that ran between two times of day.
 func tracked(from, to time.Time, description string) toggl.TimeEntry {
 	return toggl.TimeEntry{
 		Description: description,

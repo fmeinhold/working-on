@@ -35,7 +35,6 @@ func (z Zone) String() string {
 		z.FromMinute/60, z.FromMinute%60, z.ToMinute/60, z.ToMinute%60)
 }
 
-// on places a zone on a date.
 func (z Zone) on(day time.Time) (time.Time, time.Time) {
 	year, month, date := day.Date()
 	loc := day.Location()
@@ -120,7 +119,6 @@ type Sanitizer struct {
 	// and the gaps around it are taken to be its own.
 	Short time.Duration
 
-	// Zones are the spans of the day nothing may be stretched into.
 	Zones []Zone
 
 	// DayEnds is the time of day work stops, in minutes since midnight. An
@@ -139,8 +137,6 @@ type Sanitizer struct {
 	Now func() time.Time
 }
 
-// NewSanitizer reads the sanitize settings, falling back to the defaults for
-// whatever is left out.
 func NewSanitizer(cfg *Config) (Sanitizer, error) {
 	snap, err := parseTidyDuration("snap", cfg.Sanitize.Snap, DefaultSnap)
 	if err != nil {
@@ -219,7 +215,6 @@ type Adjustment struct {
 	Notes []string
 }
 
-// Note is why the entry moved, in a few words.
 func (a Adjustment) Note() string {
 	return strings.Join(a.Notes, ", ")
 }
@@ -262,7 +257,6 @@ func (s *span) note(what string) {
 	s.notes = append(s.notes, what)
 }
 
-// isStub reports whether an entry is too short to be work in its own right.
 // It is asked of the entry as tracked, so an entry does not stop being a stub
 // halfway through being grown.
 func (s *span) isStub(short time.Duration) bool {
@@ -311,7 +305,6 @@ func (s Sanitizer) Plan(entries []toggl.TimeEntry) []Adjustment {
 	return plan
 }
 
-// spans places the entries on the day, in the order they were worked.
 func (s Sanitizer) spans(entries []toggl.TimeEntry) []*span {
 	loc := s.location()
 
@@ -351,8 +344,6 @@ func (s Sanitizer) spans(entries []toggl.TimeEntry) []*span {
 	return spans
 }
 
-// capToDayEnd cuts an entry back to the time of day work stops.
-//
 // This is what a timer left running overnight comes to. It did not run until
 // you opened the laptop again the next morning; it ran until you left, and the
 // end of the day is the closest thing to that anyone can say afterwards. A
@@ -424,9 +415,6 @@ func (s Sanitizer) snapToGrid(spans []*span) {
 	}
 }
 
-// closeGaps hands the time between two entries to whichever of them it belongs
-// to.
-//
 // A gap before a stub is the stub's: an entry of a few minutes is a note about
 // something that took longer than that, so it grows to meet the entries either
 // side of it. Every other gap goes to the entry that ran into it, which is the
@@ -528,8 +516,6 @@ func (r run) without(from, to time.Time) []run {
 	return left
 }
 
-// roundTo rounds a time to the nearest point on a grid laid from midnight.
-//
 // The grid starts at midnight rather than at the epoch so that it lines up with
 // the clock in a zone whose offset is not a whole number of hours, and the
 // result is built as a date so that the day the clocks change is still a day.
@@ -566,8 +552,6 @@ func (s Sanitizer) now() time.Time {
 	return time.Now()
 }
 
-// Sanitize saves an adjusted entry, and answers with the entry as toggl now
-// has it.
 func Sanitize(cfg *Config, adjustment Adjustment) (*toggl.TimeEntry, error) {
 	return sanitize(toggl.NewToggl(cfg.Settings.ToggleApiToken), adjustment)
 }

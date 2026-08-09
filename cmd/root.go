@@ -2,9 +2,10 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+
 	"github.com/fefeme/workingon/workingon"
 	"github.com/spf13/cobra"
-	"os"
 )
 
 var (
@@ -108,7 +109,6 @@ var configlessCommands = map[string]bool{
 	cobra.ShellCompNoDescRequestCmd: true,
 }
 
-// needsConfig reports whether a command cannot run without a config file.
 func needsConfig(cmd *cobra.Command) bool {
 	for c := cmd; c != nil; c = c.Parent() {
 		if configlessCommands[c.Name()] {

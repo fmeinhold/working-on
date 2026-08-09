@@ -38,15 +38,11 @@ left as ids where they cannot.`,
 	}
 }
 
-// templateLabels are the names of the projects and tasks the listed templates
-// pin, by id.
 type templateLabels struct {
 	projects map[int]string
 	tasks    map[int]string
 }
 
-// lookupTemplateLabels names the projects and tasks the templates pin.
-//
 // It costs a round trip, so it is skipped entirely for templates that pin
 // nothing, and a lookup that fails leaves the id to stand for itself rather
 // than failing a listing that is otherwise readable straight from the config.

@@ -19,8 +19,6 @@ import (
 // a *cobra.Command.
 var jsonOutput bool
 
-// emit writes the one document a command produces when asked for JSON.
-//
 // Indented, because these get read by people at least as often as by programs,
 // and a single document per command means the whitespace costs nothing to
 // parse.
@@ -49,7 +47,6 @@ func encodeTo(out io.Writer, value any) error {
 	return encoder.Encode(value)
 }
 
-// ref is an id together with the name it resolves to, for a project or a task.
 type ref struct {
 	Id   int    `json:"id"`
 	Name string `json:"name,omitempty"`
@@ -120,8 +117,8 @@ func entryOf(entry *toggl.TimeEntry, cfg *workingon.Config, names entryNames) *e
 	return view
 }
 
-// entryWith describes one entry, resolving its names itself. For the commands
-// that answer with a single entry and have no listing to share a lookup with.
+// For the commands that answer with a single entry and have no listing to
+// share a lookup with.
 func entryWith(entry *toggl.TimeEntry, cfg *workingon.Config) *entryJSON {
 	if entry == nil {
 		return nil
@@ -130,8 +127,6 @@ func entryWith(entry *toggl.TimeEntry, cfg *workingon.Config) *entryJSON {
 	return entryOf(entry, cfg, nameResolver(entry))
 }
 
-// emitDay answers with everything tracked on a day.
-//
 // The total is added up here rather than left to the caller, since summing the
 // entries is the first thing anyone does with this and getting a running timer
 // right in that sum is the one part worth doing once.
@@ -170,8 +165,6 @@ func spanJSONOf(start, stop time.Time, loc *time.Location) *spanJSON {
 	}
 }
 
-// emitSanitizePlan answers with what tidying a day would change, and whether it
-// was saved.
 func emitSanitizePlan(day time.Time, plan []workingon.Adjustment, cfg *workingon.Config,
 	resolve func(*toggl.TimeEntry) entryNames, saved bool) error {
 
@@ -204,9 +197,6 @@ func emitSanitizePlan(day time.Time, plan []workingon.Adjustment, cfg *workingon
 	}{day.Format("2006-01-02"), adjustments, saved})
 }
 
-// emitCurrent answers with the running timer, or says plainly that there is
-// none.
-//
 // The flag is there so that "nothing is running" is a fact to be read rather
 // than a null to be told apart from a lookup that failed.
 func emitCurrent(entry *toggl.TimeEntry, cfg *workingon.Config) error {
@@ -216,9 +206,6 @@ func emitCurrent(entry *toggl.TimeEntry, cfg *workingon.Config) error {
 	}{entry != nil, entryWith(entry, cfg)})
 }
 
-// emitEntry answers with the entry a command created, continued or stopped,
-// under a key naming what became of it.
-//
 // The verb is carried in the document rather than left to the caller to
 // remember which command they ran, so a log of these reads on its own.
 func emitEntry(action string, entry *toggl.TimeEntry, cfg *workingon.Config) error {

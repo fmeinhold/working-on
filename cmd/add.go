@@ -2,19 +2,17 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
+	"time"
+
 	"github.com/fefeme/workingon/workingon"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"strings"
-
-	//"strconv"
-	"time"
 )
 
 var (
 	UnableToParseArgs = fmt.Errorf("unable to make sense of the arguments")
 	DurationRequired  = fmt.Errorf("a duration is required")
-	//NoProject         = fmt.Errorf("unable to figure out project")
 )
 
 type CommandArgs struct {
@@ -137,7 +135,6 @@ can lead them:
 		}
 	)
 
-	// Flags
 	addCommand.Flags().StringP("stop", "s", "", "Stop Time")
 	addCommand.Flags().StringP("project", "p", viper.GetString("TOGGL_PROJECT"),
 		"Set the toggl project, by id or by name")

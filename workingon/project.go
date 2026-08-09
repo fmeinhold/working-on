@@ -16,8 +16,6 @@ var ErrProjectNotFound = errors.New("project not found")
 // the id is asked for instead.
 var ErrAmbiguousProject = errors.New("more than one project has that name")
 
-// FindProjectByName resolves a project name to its toggl id.
-//
 // Names are matched case insensitively, and an active project wins over an
 // archived one of the same name - a name is reused after a project is closed
 // far more often than someone means the closed one.

@@ -108,8 +108,8 @@ func runInit(session initSession) error {
 	return runGlobalInit(session)
 }
 
-// wantsLocal decides which of the two files this run is about. Once the global
-// config exists, what is left to set up is the directory you are standing in.
+// Once the global config exists, what is left to set up is the directory you
+// are standing in.
 func (s initSession) wantsLocal() bool {
 	switch {
 	case s.local:
@@ -121,9 +121,8 @@ func (s initSession) wantsLocal() bool {
 	}
 }
 
-// configured reports whether a usable global config was loaded. A config that
-// names no token cannot reach toggl, so it is no better than none for the
-// question of which flow to run.
+// A config that names no token cannot reach toggl, so it is no better than
+// none for the question of which flow to run.
 func (s initSession) configured() bool {
 	return s.cfg != nil && s.cfg.Settings.ToggleApiToken != ""
 }
@@ -377,8 +376,6 @@ func activeProjects(client *toggl.Toggl, wid int) ([]toggl.Project, error) {
 	return projects.Projects, nil
 }
 
-// pickProject lists projects and reads a choice, returning nil for a blank
-// answer.
 func pickProject(prompt *prompter, projects []toggl.Project, question string) *toggl.Project {
 	names := make([]string, len(projects))
 	for i, project := range projects {
@@ -486,8 +483,6 @@ func pickOne(prompt *prompter, question string, names []string) int {
 	}
 }
 
-// matching are the indexes of the names containing filter, ignoring case. An
-// empty filter matches everything.
 func matching(names []string, filter string) []int {
 	wanted := strings.ToLower(filter)
 
@@ -527,13 +522,11 @@ func listChoices(prompt *prompter, names []string, matches []int, filter string)
 	return shown
 }
 
-// prompter asks questions on out and reads answers from reader.
 type prompter struct {
 	reader *bufio.Reader
 	out    io.Writer
 }
 
-// line asks a question, returning fallback when the answer is empty.
 func (p *prompter) line(question string, fallback string) string {
 	if fallback != "" {
 		fmt.Fprintf(p.out, "%s [%s]: ", question, fallback)
@@ -575,8 +568,7 @@ func (p *prompter) yesNo(question string, fallback bool) bool {
 	}
 }
 
-// dayFirstLayout reports whether a date layout leads with the day. Testing the
-// first character is not enough: "2006-01-02" also starts with a 2.
+// Testing the first character is not enough: "2006-01-02" also starts with a 2.
 func dayFirstLayout(layout string) bool {
 	fields := isSeparator.Split(layout, -1)
 	if len(fields) == 0 {
@@ -613,7 +605,6 @@ func localTimezone() string {
 // localTimeFile is a variable so a test can point it somewhere predictable.
 var localTimeFile = "/etc/localtime"
 
-// zoneFromPath pulls "Europe/Berlin" out of a zoneinfo path.
 func zoneFromPath(path string) string {
 	const marker = "zoneinfo/"
 
@@ -650,8 +641,6 @@ func defaultLocalConfigPath() (string, error) {
 	return filepath.Join(dir, workingon.LocalConfigName), nil
 }
 
-// repositoryRoot walks up from dir looking for a .git, returning "" when there
-// is none above.
 func repositoryRoot(dir string) string {
 	for {
 		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
@@ -666,8 +655,7 @@ func repositoryRoot(dir string) string {
 	}
 }
 
-// writeConfig writes the config, creating its directory. Both are private:
-// the file holds an api token.
+// The file and its directory are both private: it holds an api token.
 func writeConfig(path string, content string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
@@ -675,9 +663,8 @@ func writeConfig(path string, content string) error {
 	return os.WriteFile(path, []byte(content), 0o600)
 }
 
-// writeLocalConfig writes the repository overlay. It holds no credentials -
-// they are ignored from this file - so it is readable like the rest of the
-// checkout it is likely to be committed to.
+// The overlay holds no credentials - they are ignored from this file - so it is
+// readable like the rest of the checkout it is likely to be committed to.
 func writeLocalConfig(path string, content string) error {
 	return os.WriteFile(path, []byte(content), 0o644)
 }

@@ -40,8 +40,6 @@ func NewNowCommand(cfg *workingon.Config) *cobra.Command {
 	return nowCommand
 }
 
-// RenderCurrent describes the running time entry, or the lack of one.
-//
 // A shell prompt has room for a marker and nothing else, so that mode stays
 // terse; everywhere else the entry is spelled out in full.
 func RenderCurrent(entry *toggl.TimeEntry, cfg *workingon.Config, prompt bool) string {
@@ -85,7 +83,6 @@ func RenderCurrent(entry *toggl.TimeEntry, cfg *workingon.Config, prompt bool) s
 	return out.String()
 }
 
-// entryNames are the human readable names behind a time entry's ids.
 type entryNames struct {
 	project string
 	task    string
@@ -95,8 +92,6 @@ type entryNames struct {
 // exercise the layout without reaching for the network.
 var nameResolver = resolveNames
 
-// resolveNames turns the project and task ids on an entry into names.
-//
 // A task carries its project with it, so resolving the task usually answers
 // both from the local cache without a request. An id that cannot be named is
 // shown as an id rather than dropped, so the output never hides where an entry
@@ -125,9 +120,6 @@ func resolveNames(entry *toggl.TimeEntry) entryNames {
 	return names
 }
 
-// lookupProjectName searches the configured sources for a project id, returning
-// an empty string if none of them knows it.
-//
 // Active projects are searched first and archived ones only if that misses: a
 // running timer almost always names a live project, and the archived listing is
 // an order of magnitude larger in a workspace with any history.

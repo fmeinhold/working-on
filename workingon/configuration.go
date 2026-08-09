@@ -20,8 +20,6 @@ type Config struct {
 	Sources     map[string]interface{} `yaml:"sources" mapstructure:"sources"`
 }
 
-// SanitizeConfig is how `wo sanitize` tidies a day.
-//
 // The durations are read as text so that leaving one out and setting it to
 // zero can mean different things: absent takes the default, "0" turns that
 // part of the tidying off.
@@ -182,9 +180,8 @@ func localLocation() time.Location {
 	return *local
 }
 
-// FindLocalConfig looks for a repository local overlay, starting at the
-// working directory and walking up. The search stops at the repository root,
-// so a file far above an unrelated checkout is never picked up.
+// The search walks up from the working directory and stops at the repository
+// root, so a file far above an unrelated checkout is never picked up.
 func FindLocalConfig() string {
 	dir, err := os.Getwd()
 	if err != nil {
@@ -210,8 +207,6 @@ func FindLocalConfig() string {
 	}
 }
 
-// mergeLocalConfig layers an overlay over the config already loaded, minus
-// anything on the deny list.
 func mergeLocalConfig(path string) error {
 	local := viper.New()
 	local.SetConfigFile(path)

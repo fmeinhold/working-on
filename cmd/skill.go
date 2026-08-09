@@ -76,8 +76,6 @@ one you have edited.`,
 	return skillCommand
 }
 
-// skillPath is where --install writes.
-//
 // CLAUDE_CONFIG_DIR is honoured because Claude Code honours it, and a skill
 // written anywhere else would simply never be read.
 func skillPath(dir string) (string, error) {
@@ -96,12 +94,10 @@ func skillPath(dir string) (string, error) {
 	return filepath.Join(dir, skills.ClaudeName, "SKILL.md"), nil
 }
 
-// installSkill writes the skill out, refusing to replace one that is already
-// there.
-//
-// The refusal covers the case of a skill installed by hand from a checkout,
-// where the path is a symlink back into it: overwriting would edit the
-// checkout, which is not what installing sounds like it does.
+// Refusing to replace a skill that is already there covers the case of one
+// installed by hand from a checkout, where the path is a symlink back into it:
+// overwriting would edit the checkout, which is not what installing sounds
+// like it does.
 func installSkill(path string, force bool) error {
 	if !force {
 		if _, err := os.Lstat(path); err == nil {

@@ -33,8 +33,6 @@ type taskCacheData struct {
 	Tasks       []toggl.Task `json:"tasks"`
 }
 
-// TaskCache is a local mirror of a workspace's tasks.
-//
 // v9 has no id-only task route, so resolving a single task means walking the
 // whole workspace listing - eight requests for a workspace of any size, on
 // every `wo add`. The cache turns that into a map lookup, kept current with
@@ -79,8 +77,6 @@ func (c *TaskCache) Tasks() ([]toggl.Task, error) {
 	return c.data.Tasks, nil
 }
 
-// Find returns a task by id.
-//
 // A miss is treated as "possibly stale" rather than "no such task": the cache
 // refreshes and looks again before giving up, so a task created moments ago
 // resolves without the user needing to know a cache exists.
@@ -134,9 +130,8 @@ func (c *TaskCache) FindByName(name string, projectId int) (*toggl.Task, error) 
 	return nil, fmt.Errorf("%w: no task named %q in project %d", ErrTaskNotFound, name, projectId)
 }
 
-// matchName finds a task by name among what is cached. A project id of zero
-// searches the whole workspace, where a name is far more likely to be
-// ambiguous, so only an unambiguous match counts.
+// A project id of zero searches the whole workspace, where a name is far more
+// likely to be ambiguous, so only an unambiguous match counts.
 func (c *TaskCache) matchName(name string, projectId int) *toggl.Task {
 	if name == "" {
 		return nil
@@ -164,7 +159,6 @@ func (c *TaskCache) matchName(name string, projectId int) *toggl.Task {
 	return found
 }
 
-// Refresh discards what is cached and rebuilds it from scratch.
 func (c *TaskCache) Refresh() error {
 	c.data = taskCacheData{}
 	c.byId = nil
@@ -174,7 +168,6 @@ func (c *TaskCache) Refresh() error {
 	return c.sync()
 }
 
-// Clear removes the cache file.
 func (c *TaskCache) Clear() error {
 	c.data = taskCacheData{}
 	c.byId = nil
@@ -287,9 +280,9 @@ func (c *TaskCache) reindex() {
 	}
 }
 
-// load reads the cache file. Anything unreadable, corrupt or belonging to a
-// different account or layout is treated as an empty cache and rebuilt, since
-// a wrong answer is worse than a slow one.
+// Anything unreadable, corrupt or belonging to a different account or layout is
+// treated as an empty cache and rebuilt, since a wrong answer is worse than a
+// slow one.
 func (c *TaskCache) load() {
 	if c.loaded {
 		return

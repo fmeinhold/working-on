@@ -37,9 +37,6 @@ have one. Run ` + "`wo init`" + ` there to give it one.`,
 	}
 }
 
-// whereJSON is which config applies in this directory, and what follows from
-// it.
-//
 // Configured is the question worth asking first and is spelled out rather than
 // left to be inferred from LocalConfig being null - a caller deciding whether
 // this checkout is one that books time should not have to know that the two

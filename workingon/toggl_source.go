@@ -103,7 +103,6 @@ func (t *TogglSource) FindTaskByName(name string, projectId int) (*Task, error) 
 	return togglTask(task), nil
 }
 
-// togglTask converts a cached toggl task into the shape sources return.
 func togglTask(task *toggl.Task) *Task {
 	return &Task{
 		Key:     strconv.Itoa(task.Id),
@@ -117,7 +116,6 @@ func togglTask(task *toggl.Task) *Task {
 	}
 }
 
-// RefreshCache rebuilds the local task cache from scratch.
 func (t *TogglSource) RefreshCache() error {
 	if t.cache == nil {
 		return nil
@@ -125,7 +123,6 @@ func (t *TogglSource) RefreshCache() error {
 	return t.cache.Refresh()
 }
 
-// ClearCache removes the local task cache.
 func (t *TogglSource) ClearCache() error {
 	if t.cache == nil {
 		return nil
@@ -133,7 +130,6 @@ func (t *TogglSource) ClearCache() error {
 	return t.cache.Clear()
 }
 
-// CachePath is where this source keeps its task cache, empty if it has none.
 func (t *TogglSource) CachePath() string {
 	if t.cache == nil {
 		return ""

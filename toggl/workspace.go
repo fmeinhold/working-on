@@ -48,7 +48,6 @@ func (w *WorkspaceClient) GetWorkspaces() (*WorkspaceList, error) {
 	}, nil
 }
 
-// ProjectQuery narrows a project listing.
 type ProjectQuery struct {
 	// ActiveOnly leaves out archived projects. In a workspace with any history
 	// they outnumber the live ones several times over, so a listing meant for

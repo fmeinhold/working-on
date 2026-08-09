@@ -121,9 +121,6 @@ func NewProjectsCommand(cfg *workingon.Config) *cobra.Command {
 	return projectsCommand
 }
 
-// emitProjects answers with the projects that can be booked against, and which
-// of them a new entry would land in.
-//
 // It walks the sources itself rather than sharing the table's loop: there is no
 // spinner to run and no column to leave out, and the selected project is a
 // field here rather than a marker beside a row.

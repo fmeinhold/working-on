@@ -4,12 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/fefeme/workingon/util"
 	"math"
 	"math/rand"
 	"net/url"
 	"strconv"
 	"time"
+
+	"github.com/fefeme/workingon/util"
 )
 
 const Endpoint = "time_entries"
@@ -53,7 +54,6 @@ func (t *TimeEntry) where() string {
 	return strconv.Itoa(t.ProjectId)
 }
 
-// IsRunning reports whether the entry is an open timer.
 func (t *TimeEntry) IsRunning() bool {
 	return t.Duration < 0
 }
@@ -96,9 +96,8 @@ func (t *TimeEntries) Start(timeEntry *TimeEntry) (*TimeEntry, error) {
 	return t.Add(timeEntry)
 }
 
-// Add creates a time entry. v9 scopes creation to a workspace and takes the
-// entry unwrapped, where v8 posted to a global endpoint with a "time_entry"
-// envelope.
+// v9 scopes creation to a workspace and takes the entry unwrapped, where v8
+// posted to a global endpoint with a "time_entry" envelope.
 func (t *TimeEntries) Add(timeEntry *TimeEntry) (*TimeEntry, error) {
 	if timeEntry.WorkspaceId == 0 {
 		return nil, errors.New("workspace id is required to create a time entry")
@@ -123,8 +122,6 @@ func (t *TimeEntries) Add(timeEntry *TimeEntry) (*TimeEntry, error) {
 	return &res, nil
 }
 
-// Update saves changes to an existing time entry.
-//
 // v9 takes the whole entry rather than the changed fields, so pass one that was
 // read back from the api. A running entry keeps running: its duration is still
 // negative and it still has no stop.
@@ -190,7 +187,6 @@ func (t *TimeEntries) List(start *time.Time, end *time.Time) (*TimeEntryList, er
 	}, nil
 }
 
-// Current returns the running time entry, or nil if no timer is running.
 func (t *TimeEntries) Current() (*TimeEntry, error) {
 	message, err := t.client.NewMessage("GET", fmt.Sprintf("me/%s/current", Endpoint), nil)
 	if err != nil {
@@ -214,8 +210,6 @@ func (t *TimeEntries) Current() (*TimeEntry, error) {
 	return entry, nil
 }
 
-// MostRecent returns the entry with the latest start time.
-//
 // It scans rather than indexing the last element: v9 does not document the sort
 // order of the listing, so relying on it would be a coin flip.
 func (t *TimeEntries) MostRecent() (*TimeEntry, error) {
@@ -238,7 +232,6 @@ func (t *TimeEntries) MostRecent() (*TimeEntry, error) {
 	return recent, nil
 }
 
-// Stop closes a running time entry.
 func (t *TimeEntries) Stop(workspaceId int, timeEntryId int) (*TimeEntry, error) {
 	message, err := t.client.NewMessage("PATCH",
 		fmt.Sprintf("workspaces/%d/%s/%d/stop", workspaceId, Endpoint, timeEntryId), nil)

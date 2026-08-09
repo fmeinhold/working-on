@@ -3,10 +3,11 @@ package workingon
 import (
 	"errors"
 	"fmt"
-	"github.com/fefeme/workingon/toggl"
-	"github.com/fefeme/workingon/util"
 	"strconv"
 	"time"
+
+	"github.com/fefeme/workingon/toggl"
+	"github.com/fefeme/workingon/util"
 )
 
 var (
@@ -81,7 +82,6 @@ func ContinueLast(cfg *Config, req EntryRequest) (*toggl.TimeEntry, error) {
 	return client.TimeEntries.Add(timeEntry)
 }
 
-// continuationOf builds an unstarted copy of the most recent entry.
 func continuationOf(client *toggl.Toggl) (*toggl.TimeEntry, error) {
 	previous, err := client.TimeEntries.MostRecent()
 	if err != nil {
@@ -106,8 +106,6 @@ func continuationOf(client *toggl.Toggl) (*toggl.TimeEntry, error) {
 	}, nil
 }
 
-// describeTask builds the time entry description for a resolved task.
-//
 // A toggl task key is just its numeric id, which the entry already links to
 // via TaskId, so prefixing it only adds noise. Any other source keys its tasks
 // meaningfully, and that key is worth carrying into the description.
@@ -149,8 +147,6 @@ func lookupTaskByName(name string, projectId int) *Task {
 	return nil
 }
 
-// findTaskByName resolves a task the user named explicitly, and says so when
-// it cannot.
 func findTaskByName(name string, projectId int) (*Task, error) {
 	var lastErr error
 
@@ -175,7 +171,6 @@ func findTaskByName(name string, projectId int) (*Task, error) {
 	return nil, fmt.Errorf("%w: no task named %q", ErrTaskNotFound, name)
 }
 
-// applyTask attaches an explicitly requested task, or the configured default.
 func applyTask(cfg *Config, timeEntry *toggl.TimeEntry, taskRef string) error {
 	if taskRef != "" {
 		// A --task wins over anything inferred, and may be an id or a name.
@@ -206,8 +201,6 @@ func applyTask(cfg *Config, timeEntry *toggl.TimeEntry, taskRef string) error {
 	return nil
 }
 
-// resolveProject works out which toggl project a new entry belongs to.
-//
 // Order: the --project flag, then the configured default - which a
 // .workingon.yaml beside a checkout sets per repository. It runs before the
 // task is resolved, because a task name is only unambiguous within a project.
@@ -246,7 +239,6 @@ func resolveEntry(summaryOrKey string, pid int, req EntryRequest) (*toggl.TimeEn
 		return entryForTask(task), nil
 	}
 
-	// Maybe it's an alias for a template
 	if tpl, _ := Configuration.GetTemplate(summaryOrKey); tpl != nil {
 		args, askErr := tpl.answerOpenArgs(req.TemplateArgs, req.AskTemplateArg)
 		if askErr != nil {
@@ -268,12 +260,9 @@ func resolveEntry(summaryOrKey string, pid int, req EntryRequest) (*toggl.TimeEn
 		return entryForTask(named), nil
 	}
 
-	// It is just a Summary / Description
 	return &toggl.TimeEntry{Description: summaryOrKey}, nil
 }
 
-// settleProjectAgainstTask gives the task the last word on the project.
-//
 // A task belongs to exactly one project, and toggl refuses an entry that files
 // it under another - so of the two, only the task can be honoured. Whatever
 // chose the project, be it the --project flag, a template's toggl_pid or the
@@ -291,8 +280,7 @@ func settleProjectAgainstTask(timeEntry *toggl.TimeEntry) {
 	}
 }
 
-// projectOfTask is the project a toggl task belongs to, and zero when it cannot
-// be looked up.
+// Zero when the task cannot be looked up.
 func projectOfTask(taskId int) int {
 	task, err := Registry.GetTask(strconv.Itoa(taskId))
 	if err != nil || task == nil {
@@ -408,8 +396,6 @@ func setDuration(cfg *Config,
 // refused.
 type TaskChooser func(projectId int, tasks []Task) (*Task, error)
 
-// TasksInProject are the tasks an entry in projectId can be attached to.
-//
 // Only toggl-native tasks are offered: a task from another source is carried in
 // the description, so there is nothing to attach and nothing that would satisfy
 // a workspace asking for a task.
@@ -533,7 +519,6 @@ type EntryRequest struct {
 // asking about.
 type Describer func(entry *toggl.TimeEntry) (string, error)
 
-// describe fills in a missing description, and reports whether one was added.
 func describe(timeEntry *toggl.TimeEntry, describer Describer) (bool, error) {
 	if describer == nil || timeEntry.Description != "" {
 		return false, nil
@@ -549,9 +534,6 @@ func describe(timeEntry *toggl.TimeEntry, describer Describer) (bool, error) {
 	return true, nil
 }
 
-// NameRunningEntry gives the running timer a description when it has none,
-// returning the entry it named or nil when there was nothing to do.
-//
 // Toggl saves the running entry as a side effect of starting or stopping one,
 // and a workspace that requires descriptions refuses to save it without one.
 // That refusal arrives as a failure of whatever you were trying to do, naming a

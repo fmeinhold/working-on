@@ -57,8 +57,6 @@ func (r *registry) GetNames() []string {
 	return names
 }
 
-// GetTask resolves a task key against the sources that claim it.
-//
 // A key no source claims - free text, most commonly - resolves to an error
 // without any network call at all, which is what callers rely on to tell a
 // task key from a plain description.

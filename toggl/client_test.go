@@ -36,7 +36,6 @@ func fastRetry() RetryPolicy {
 	}
 }
 
-// respondWith answers every request with a fixed status and body.
 func respondWith(status int, body string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(status)

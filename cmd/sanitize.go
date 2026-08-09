@@ -143,8 +143,6 @@ func newSanitizer(cfg *workingon.Config, cmd *cobra.Command, snap, short, dayEnd
 	return workingon.NewSanitizer(&workingon.Config{Settings: cfg.Settings, Sanitize: settings})
 }
 
-// RenderSanitizePlan lays out what tidying would change, as the entries are now
-// against what they would become.
 func RenderSanitizePlan(day time.Time, plan []workingon.Adjustment, sanitizer workingon.Sanitizer,
 	cfg *workingon.Config, resolve func(*toggl.TimeEntry) entryNames) string {
 
@@ -195,8 +193,6 @@ func RenderSanitizePlan(day time.Time, plan []workingon.Adjustment, sanitizer wo
 	return out.String()
 }
 
-// spanOf writes a stretch of the day as the clock times it runs between, with
-// how long that is.
 func spanOf(begin time.Time, duration time.Duration, layout string) string {
 	return fmt.Sprintf("%s-%s (%s)", begin.Format(layout),
 		begin.Add(duration).Format(layout), tableDuration(duration))
@@ -243,9 +239,8 @@ func zoneNote(zones []workingon.Zone) string {
 	return fmt.Sprintf("Nothing was stretched into %s.\n", strings.Join(written, " or "))
 }
 
-// confirmSanitize asks before anything is saved. A run with nobody to ask says
-// what it would have done and changes nothing, since --yes is how a script says
-// it meant it.
+// A run with nobody to ask says what it would have done and changes nothing,
+// since --yes is how a script says it meant it.
 func confirmSanitize(yes bool, count int) bool {
 	return confirmSanitizeWith(os.Stdin, os.Stdout, interactive(), yes, count)
 }

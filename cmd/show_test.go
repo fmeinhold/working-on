@@ -8,7 +8,6 @@ import (
 	"github.com/fefeme/workingon/toggl"
 )
 
-// finished builds an entry that ran for the given duration.
 func finished(start time.Time, minutes int, description string) toggl.TimeEntry {
 	stop := start.Add(time.Duration(minutes) * time.Minute)
 	return toggl.TimeEntry{

@@ -65,8 +65,6 @@ func (f taskFilter) resolved() taskFilter {
 	return f
 }
 
-// archived reports whether a project is one `wo projects` would leave out.
-//
 // A project the lookup does not know about counts as live: the index is best
 // effort, and a listing that quietly dropped every task because the projects
 // could not be fetched would be worse than one that shows an archived few.
@@ -108,8 +106,6 @@ var (
 	taskNoteColour    = color.New(color.Faint)
 )
 
-// loadTasks fetches a source's tasks and narrows them to what the listing is
-// for.
 func loadTasks(source workingon.Source, filter taskFilter) (*taskListing, error) {
 	spinner, err := yacspin.New(yacspin.Config{
 		Frequency:     100 * time.Millisecond,
@@ -138,7 +134,6 @@ func loadTasks(source workingon.Source, filter taskFilter) (*taskListing, error)
 	return filter.apply(tasks), nil
 }
 
-// taskGroup is the tasks of one project, under the name to head them with.
 type taskGroup struct {
 	label string
 	tasks []workingon.Task
@@ -222,8 +217,6 @@ func writeTaskRows(out *strings.Builder, tasks []workingon.Task, indent string, 
 	}
 }
 
-// taskHeading says what the listing covers - which source, how many tasks, and
-// the project they were narrowed to, if any.
 func taskHeading(source workingon.Source, listing *taskListing, filter taskFilter) string {
 	count := countOfTasks(len(listing.tasks))
 	if filter.active() {

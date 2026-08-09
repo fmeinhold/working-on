@@ -175,7 +175,6 @@ func tryTimeRange(value string) (clockTime, time.Duration, bool, error) {
 	return from, duration, true, nil
 }
 
-// datePrefix is a date layout together with the components it carries.
 type datePrefix struct {
 	layout   string
 	hasMonth bool
@@ -226,7 +225,6 @@ func datePrefixLayouts(layout string) []datePrefix {
 	return prefixes
 }
 
-// dateFieldKind names the component a reference-layout field stands for.
 func dateFieldKind(field string) string {
 	switch field {
 	case "2", "02", "_2":
@@ -281,7 +279,6 @@ func tryDate(value string, config *ParseArgsConfig) (time.Time, bool, error) {
 	return time.Time{}, false, nil
 }
 
-// ParseDateFromArg reads the date a command was given as an argument.
 func ParseDateFromArg(date string, cfg *workingon.Config) (time.Time, error) {
 	parsed, matched, err := tryDate(date, newParseArgsConfig(cfg))
 	if err != nil {

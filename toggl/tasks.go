@@ -105,8 +105,8 @@ func (t *TaskClient) eachPage(wid int, since time.Time, visit func([]Task) bool)
 	}
 }
 
-// Get fetches a single task. v9 scopes tasks under their project, so unlike v8
-// the task id alone is not enough to address one.
+// v9 scopes tasks under their project, so unlike v8 the task id alone is not
+// enough to address one.
 func (t *TaskClient) Get(wid int, pid int, tid int) (*Task, error) {
 	message, err := t.client.NewMessage("GET",
 		fmt.Sprintf("workspaces/%d/projects/%d/tasks/%d", wid, pid, tid), nil)

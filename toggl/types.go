@@ -27,8 +27,7 @@ type Task struct {
 	ServerDeletedAt  *time.Time `json:"server_deleted_at,omitempty"`
 }
 
-// IsDeleted reports whether the task has been deleted server side. Deleted
-// tasks only appear in a listing filtered with `since`.
+// Deleted tasks only appear in a listing filtered with `since`.
 func (t *Task) IsDeleted() bool {
 	return t.ServerDeletedAt != nil
 }

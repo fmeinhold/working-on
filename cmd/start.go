@@ -2,11 +2,12 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
+	"time"
+
 	"github.com/fefeme/workingon/workingon"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"strings"
-	"time"
 )
 
 func NewStartCommand(cfg *workingon.Config) *cobra.Command {

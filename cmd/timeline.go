@@ -47,7 +47,6 @@ var blockColours = []*color.Color{
 	color.New(color.FgRed),
 }
 
-// block is one entry placed on the timeline.
 type block struct {
 	begin  time.Time
 	finish time.Time
@@ -187,7 +186,6 @@ func missedNote(slots []time.Time, blocks []block, layout string) string {
 		pluralEntries(entries))
 }
 
-// overlap is how much of one span falls inside another.
 func overlap(begin, finish, from, to time.Time) time.Duration {
 	if begin.Before(from) {
 		begin = from
@@ -269,7 +267,6 @@ func renderBar(slot time.Time, blocks []block) string {
 	return bar.String()
 }
 
-// blockAt is the index of the block covering an instant, or -1 for a gap.
 func blockAt(moment time.Time, blocks []block) int {
 	for i, b := range blocks {
 		if !moment.Before(b.begin) && moment.Before(b.finish) {

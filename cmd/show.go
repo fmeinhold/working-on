@@ -85,8 +85,6 @@ shortened to the day or the day and month if you like - with a layout of
 	return showCommand
 }
 
-// parseWindow reads the --from and --to flags, each falling back to its end of
-// the default working day.
 func parseWindow(from, to string) (dayWindow, error) {
 	window := defaultWindow
 
@@ -113,9 +111,6 @@ func parseWindow(from, to string) (dayWindow, error) {
 	return window, nil
 }
 
-// entriesStartingOn keeps the entries that began on the given day, sorted by
-// start time.
-//
 // The listing is narrowed by the api as well, but where its range ends is not
 // something to take on faith, and v9 does not document the order it answers in.
 func entriesStartingOn(day time.Time, entries []toggl.TimeEntry) []toggl.TimeEntry {
@@ -140,9 +135,6 @@ func entriesStartingOn(day time.Time, entries []toggl.TimeEntry) []toggl.TimeEnt
 	return kept
 }
 
-// RenderDay lays out a day's entries in the order they were worked, with what
-// they add up to underneath.
-//
 // The project and task columns appear only when something fills them, so a
 // workspace that files everything under one project is not asked to read the
 // same name on every line.
@@ -257,7 +249,6 @@ func describedAs(description string) string {
 	return description
 }
 
-// entryDuration is how long an entry ran for, or has been running so far.
 func entryDuration(entry *toggl.TimeEntry) time.Duration {
 	if entry.IsRunning() {
 		if entry.Start == nil {
@@ -268,8 +259,6 @@ func entryDuration(entry *toggl.TimeEntry) time.Duration {
 	return time.Duration(entry.Duration) * time.Second
 }
 
-// entryEnd is the clock time an entry stopped at, or "running".
-//
 // An entry that was saved without a stop is dated from its own duration rather
 // than left blank, since that is the one number it is certain to carry.
 func entryEnd(entry *toggl.TimeEntry, layout string, loc *time.Location) string {
@@ -294,7 +283,6 @@ func tableDuration(d time.Duration) string {
 	return humanDuration(d)
 }
 
-// timeLayout is the time of day half of the configured date and time layout.
 // The date itself is in the heading, so repeating it on every row would only
 // cost width.
 func timeLayout(cfg *workingon.Config) string {

@@ -26,7 +26,6 @@ func at(loc *time.Location, hour, minute, second int) time.Time {
 	return time.Date(2026, time.August, 7, hour, minute, second, 0, loc)
 }
 
-// tracked is an entry that ran between two times.
 func tracked(description string, begin, end time.Time) toggl.TimeEntry {
 	start := begin.UTC()
 	stop := end.UTC()
@@ -41,7 +40,6 @@ func tracked(description string, begin, end time.Time) toggl.TimeEntry {
 	}
 }
 
-// running is a timer that is still going.
 func running(description string, begin time.Time) toggl.TimeEntry {
 	entry := tracked(description, begin, begin)
 	entry.Stop = nil
@@ -400,7 +398,6 @@ func TestNewSanitizerReportsSettingsItCannotRead(t *testing.T) {
 	}
 }
 
-// endsAt is the sanitizer with a time of day work stops at.
 func endsAt(s Sanitizer, hour, minute int) Sanitizer {
 	end := hour*60 + minute
 	s.DayEnds = &end

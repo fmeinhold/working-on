@@ -7,7 +7,6 @@ import (
 	"time"
 )
 
-// RetryPolicy controls how a failed request is repeated.
 type RetryPolicy struct {
 	// MaxAttempts is the total number of sends, not the number of retries.
 	MaxAttempts int
@@ -68,15 +67,11 @@ func (p RetryPolicy) delay(attempt int, retryAfter time.Duration) time.Duration 
 	return half + time.Duration(rand.Int63n(int64(half)+1))
 }
 
-// attemptOutcome describes why an attempt failed and whether repeating it is
-// worthwhile.
 type attemptOutcome struct {
 	retryable  bool
 	retryAfter time.Duration
 }
 
-// isIdempotent reports whether repeating a request is safe.
-//
 // POST creates a time entry. If a POST fails ambiguously - a dropped
 // connection, a 502 - the server may well have created the entry anyway, and
 // repeating it would book the same hours twice. For a tool that bills time

@@ -79,7 +79,6 @@ const (
 	fallbackTimeLayout = "3:04 PM"
 )
 
-// localeDateLayout is the date layout for this machine's locale.
 func localeDateLayout() string {
 	if layout, ok := regionDateLayouts[localeRegion()]; ok {
 		return layout
@@ -87,8 +86,6 @@ func localeDateLayout() string {
 	return fallbackDateLayout
 }
 
-// localeTimeLayout is the time of day layout for this machine's locale.
-//
 // A region the date table does not name is the same unknown region here, so
 // the two questions fall back together rather than offering a US date beside
 // a European clock.

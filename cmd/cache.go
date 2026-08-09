@@ -18,7 +18,6 @@ type cacheKeeper interface {
 	ClearCache() error
 }
 
-// cacheLocator is the further optional ability to say where that cache lives.
 type cacheLocator interface {
 	CachePath() string
 }

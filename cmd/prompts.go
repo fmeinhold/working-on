@@ -12,24 +12,12 @@ import (
 	"github.com/mattn/go-isatty"
 )
 
-// untitled is what an entry is called when there is nobody to ask and no
-// default configured. Toggl workspaces can require a description, and a placeholder
-// that says the entry was never named beats failing to track the time at all.
 const untitled = "Untitled"
 
-// describer names entries that carry no description of their own: the one being
-// created, and the timer already running that starting or stopping it saves.
-//
-// toggl_default_description settles the question outright. Without it, the
-// answer is asked for, and only a run with nowhere to ask - a script, a cron
-// job - falls back to untitled.
 func describer(cfg *workingon.Config) workingon.Describer {
 	return describerFor(cfg, os.Stdin, os.Stdout, interactive())
 }
 
-// interactive reports whether there is anybody at the other end to answer a
-// question.
-//
 // A run that asked for JSON is a program reading the output, and a program
 // cannot answer a prompt - it would sit waiting on an answer that never comes,
 // having already been given a document it could not parse.
@@ -57,9 +45,6 @@ func describerFor(cfg *workingon.Config, in io.Reader, out io.Writer, interactiv
 	}
 }
 
-// taskChooser offers a project's tasks and returns the one picked, or nil when
-// the question was left unanswered.
-//
 // A run with nobody to ask - a script, a cron job - answers nothing at all, so
 // a workspace that requires a task reports that plainly instead of hanging on a
 // prompt no one will see.
@@ -90,9 +75,6 @@ func chooseTaskFrom(in io.Reader, out io.Writer) workingon.TaskChooser {
 	}
 }
 
-// templateArgAsker fills in what a template's description asks for and
-// -t/--templateArgs did not answer.
-//
 // A run with nobody to ask - a script, a cron job - leaves the placeholders as
 // they were, so a scripted `wo add call` still books something rather than
 // stopping on a question no one will see.
@@ -103,9 +85,6 @@ func templateArgAsker(interactive bool) workingon.TemplateArgAsker {
 	return askTemplateArgsFrom(os.Stdin, os.Stdout)
 }
 
-// askTemplateArgsFrom asks for each placeholder in turn, under the name the
-// description knows it by.
-//
 // An answer left blank is no answer: the placeholder renders as <no value>, as
 // it would have without asking.
 func askTemplateArgsFrom(in io.Reader, out io.Writer) workingon.TemplateArgAsker {

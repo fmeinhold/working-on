@@ -1,13 +1,10 @@
 PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
 SUDO ?= sudo
+OUT ?= ./bin
 
 build:
-	go build -o wo -ldflags="-s -w" main.go
-
-build-bin:
-	mkdir -p bin
-	go build -o bin/wo -ldflags="-s -w" main.go
+	go build -o $(OUT)/wo -ldflags="-s -w" main.go
 
 run:
 	go run main.go
@@ -19,4 +16,4 @@ install: build
 uninstall:
 	$(SUDO) rm -f $(BINDIR)/wo
 
-.PHONY: build build-bin run install uninstall
+.PHONY: build run install uninstall
