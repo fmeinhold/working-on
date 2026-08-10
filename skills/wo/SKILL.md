@@ -8,6 +8,10 @@ description: Track time in Toggl Track from the command line with the `wo` tool 
 `wo` books time to Toggl Track. Every command that prints anything takes
 `--json` - **always pass it**, and parse the document rather than the prose.
 
+Every command, argument and flag is written down below. **Do not run
+`wo --help` or `wo <command> --help`** - it costs a round trip to learn what
+this page already says.
+
 ## The two rules
 
 **Run it from the user's repository.** `wo` picks the project from the
@@ -99,6 +103,63 @@ That particular error is the ordinary "nothing to stop" case, not a fault.
 `[date]` is `today`, `yesterday`, a weekday name for the most recent such day,
 or a date in the user's configured layout.
 
+### What goes on the command line
+
+`start` and `add` take a first argument saying what the entry is about - a
+description, a task by name or by id, or a template alias. A task name is
+matched within the project the entry lands in, so a description is never
+mistaken for one.
+
+Everything after that is times, and they may come **in any order**. Each
+argument is tried as a time of day, then a range, then a duration, then a date;
+whatever matches none of those joins the description.
+
+| Looks like | Means |
+|---|---|
+| `9:00` | start at that time of day |
+| `9:00-10:30` | start and duration in one |
+| `1h30m`, `90m`, `2h` | a duration (Go's syntax - `h`, `m`, `s`) |
+| `today`, `yesterday` | the date |
+| `mon` … `sunday`, `monday` … | the most recent such weekday |
+| `6.8`, `6.8.2026` | a date in the configured layout, shorter prefixes allowed |
+| anything else | part of the description |
+
+That last row is the trap: **keep the description in one quoted argument.**
+`wo start "sync" mon` books Monday, not a description of "sync mon".
+
+`start` with no time starts now. `add` needs a duration one way or another -
+`9:00 1h`, `9:00-10:00`, or `9:00 --stop 10:00`.
+
+### Flags
+
+`--json` is global and works on every command.
+
+| Command | Flags |
+|---|---|
+| `start` | `-a, --append` · `-c, --continue` · `-d, --dry` · `-p, --project <id\|name>` · `--task <id\|name>` · `--pick-task` · `-t, --templateArgs k=v` · `-w, --wid <id>` |
+| `add` | the same, plus `-s, --stop <time>` and `-f, --fuzzy`; no `--continue` |
+| `continue` | `-d, --dry` · `-a, --append` · `--pick-task` |
+| `stop`, `now`, `where`, `templates` | none worth passing (`now` also has `-p, --prompt`, for shell prompts) |
+| `show [date]` | `-l, --list` · `--from <hour>` · `--to <hour>` |
+| `sanitize [date]` | `-d, --dry` · `-y, --yes` · `--snap <duration>` · `--short <duration>` · `--day-ends <time>` |
+| `projects` | `-a, --archived` |
+| `tasks` | `-r, --refresh` · `-a, --all` · `--archived` |
+
+What the less obvious ones do:
+
+- `--append` back-dates the start to where the last entry stopped, so the gap
+  since then belongs to this entry.
+- `--continue` (or the `continue` command) starts a fresh entry carrying the
+  last one's description, project and task, and takes no summary of its own.
+- `--dry` does the whole thing and reports the entry it *would* have created,
+  coming back with `"id": 0`. Nothing reaches Toggl.
+- `--pick-task` **prompts**, so it is useless under `--json` - pass `--task`
+  instead. Same for anything else that would ask a question.
+- `--snap` is the grid times round to, `0` to leave them alone (default `5m`);
+  `--short` is the length under which an entry is a stub that takes the gaps
+  around it (default `15m`); `--day-ends` is the time work stops, as `"18:00"`.
+  All three override the config for one run.
+
 An entry looks like this. `seconds` is elapsed-so-far while `running` is true,
 and there is no `stop` until it ends:
 
@@ -132,9 +193,8 @@ Say what it booked, using the resolved project and task names rather than ids.
 If the user names a task, pass it: `--task <id>` by id, or `--task "<name>"`
 by name within the project. `wo tasks --json` lists what is available.
 
-`--dry` runs the whole thing and reports the entry it *would* have created
-without writing to Toggl. The entry comes back with `"id": 0`. Use it when the
-user asks what would happen, or to check a task resolves before committing.
+Reach for `--dry` when the user asks what would happen, or to check a task
+resolves before committing to it.
 
 Before starting something new, `wo now --json` is worth a look - if a timer is
 already running for the same thing, say so instead of restarting it.
