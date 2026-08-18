@@ -1,6 +1,6 @@
 ---
 name: wo
-description: Track time in Toggl Track from the command line with the `wo` tool - start and stop timers, see what is running, review or tidy a day. Use when the user says they are starting or finishing a piece of work, asks what they are working on or how long they have been at it, wants a timer stopped or switched, asks what they did today or yesterday, or wants a day's ragged entries tidied up. Also use when settling into work in a repository, to check whether that checkout tracks time and offer to start a timer if none is running.
+description: Track time in Toggl Track from the command line with the `wo` tool - start and stop timers, see what is running, review or tidy a day. Use when the user says they are starting or finishing a piece of work, asks what they are working on or how long they have been at it, wants a timer stopped or switched, asks what they did today or yesterday, or wants a day's ragged entries tidied up. Also use when settling into work in a repository, to check whether that checkout tracks time and, where it does, start an entry for the work at hand.
 ---
 
 # wo
@@ -24,21 +24,23 @@ have asked about becomes an error instead of a question. So a workspace that
 requires a task needs `--task <id>` on the command line - the error says so
 when it happens.
 
-## Offering to start a timer
+## Every piece of work gets an entry
 
-When the user begins working on something in a checkout that tracks time, and
-nothing is running, **ask whether they want a timer started**. Two checks, in
-this order, and both have to pass before you say anything:
+Where the checkout tracks time, **new work always means a new entry** - never a
+question of whether to book it, only of what to book it as. Start one at the
+beginning of a session, again when a session resumes after a break or on a new
+day, and again whenever the work moves to a different ticket or topic. Two
+checks first, in this order:
 
 ```
 wo where --json     # is this checkout set up to book time?
 wo now --json       # is a timer already running?
 ```
 
-**Only offer where `configured` is `true`.** That field is the whole gate. It
-means a `.workingon.yaml` was found - `wo` walks up from the working directory
-to the repository root looking for one, so a subdirectory of a tracked checkout
-counts and an unrelated repository above it does not.
+**This only applies where `configured` is `true`.** That field is the whole
+gate. It means a `.workingon.yaml` was found - `wo` walks up from the working
+directory to the repository root looking for one, so a subdirectory of a
+tracked checkout counts and an unrelated repository above it does not.
 
 `wo where` needs no config of its own and does not fail in a checkout that has
 none, so it is always safe to ask.
@@ -53,19 +55,27 @@ none, so it is always safe to ask.
 ```
 
 `configured: false` means this checkout books nothing in particular. **Say
-nothing at all** - no offer, no suggestion to run `wo init`, no mention that
-time tracking exists. Most repositories are not tracked, and a prompt in every
-one of them is noise. Only bring it up if the user raises it themselves.
+nothing at all** - no entry, no offer, no suggestion to run `wo init`, no
+mention that time tracking exists. Most repositories are not tracked, and a
+prompt in every one of them is noise. Only bring it up if the user raises it
+themselves.
 
-Where it is `true` and `wo now --json` reports `running: false`, offer once -
-naming the project from `wo where`, so the user knows where it would land:
+Where it is `true`, what `wo now` says decides the move:
 
-> Want me to start a timer for Learning Platform Development?
+- **Nothing running.** Start an entry for the work at hand and say what it
+  booked, naming the project from `wo where` so the user knows where it landed.
+- **A timer already running for this same work.** Leave it alone. Say what is
+  running rather than restarting it - a restart splits one stretch in two for
+  no gain.
+- **A timer running for something else.** The work has moved, so this is new
+  work: start a fresh entry for it. `wo start` saves what was running, so it is
+  one command, not two.
 
-Offer once per session, not on every message. If they decline, or if they are
-plainly doing something other than the work the repository is for, drop it. If
-a timer is already running, do not offer - mention what it is only if the user
-seems to have moved on to something else.
+Describe the entry from the work itself, and **prefix the description with the
+ticket number** where there is one - `"LP3-412: fix the importer retry"`.
+Entries in other checkouts are somebody else's business: different repositories
+book to different projects and are meant to run in parallel, so never stop one
+to start another.
 
 ## Reading the result
 
