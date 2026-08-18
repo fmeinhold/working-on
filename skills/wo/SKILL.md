@@ -99,6 +99,7 @@ That particular error is the ordinary "nothing to stop" case, not a fault.
 | What | Command | Answers with |
 |---|---|---|
 | Is this checkout tracked | `wo where --json` | `{directory, local_config, project, configured}` |
+| What the settings come to | `wo where --show --json` | the same, plus `config` |
 | What is running | `wo now --json` | `{running, entry}` - `entry` is `null` when nothing runs |
 | Start a timer | `wo start "<description>" --json` | `{action: "started", entry}` |
 | Stop it | `wo stop --json` | `{action: "stopped", entry}` |
@@ -149,7 +150,8 @@ That last row is the trap: **keep the description in one quoted argument.**
 | `start` | `-a, --append` · `-c, --continue` · `-d, --dry` · `-p, --project <id\|name>` · `--task <id\|name>` · `--pick-task` · `-t, --templateArgs k=v` · `-w, --wid <id>` |
 | `add` | the same, plus `-s, --stop <time>` and `-f, --fuzzy`; no `--continue` |
 | `continue` | `-d, --dry` · `-a, --append` · `--pick-task` |
-| `stop`, `now`, `where`, `templates` | none worth passing (`now` also has `-p, --prompt`, for shell prompts) |
+| `where` | `-s, --show` |
+| `stop`, `now`, `templates` | none worth passing (`now` also has `-p, --prompt`, for shell prompts) |
 | `show [date]` | `-l, --list` · `--from <hour>` · `--to <hour>` |
 | `sanitize [date]` | `-d, --dry` · `-y, --yes` · `--snap <duration>` · `--short <duration>` · `--day-ends <time>` |
 | `projects` | `-a, --archived` |
@@ -165,6 +167,11 @@ What the less obvious ones do:
   coming back with `"id": 0`. Nothing reaches Toggl.
 - `--pick-task` **prompts**, so it is useless under `--json` - pass `--task`
   instead. Same for anything else that would ask a question.
+- `--show` on `where` adds a `config` object: the global file and the checkout's
+  overlay merged, which is what the commands run on and is not what either file
+  says alone. `config.sanitize` holds the values tidying would use, defaults
+  filled in, so it answers "what would `wo sanitize` do here" without running
+  it. The API token is never in there - `toggl_api_token_set` is a bool.
 - `--snap` is the grid times round to, `0` to leave them alone (default `5m`);
   `--short` is the length under which an entry is a stub that takes the gaps
   around it (default `15m`); `--day-ends` is the time work stops, as `"18:00"`.

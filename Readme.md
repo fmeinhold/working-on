@@ -106,6 +106,43 @@ The overlay is looked for from the working directory upwards, so a subdirectory 
 checkout. It needs no config of its own, so it still runs - and still explains itself - in a repository that has
 never been set up.
 
+`--show` adds the settings those two files come to once merged, which is what the commands actually run on and is
+not what either file says on its own. The tidying settings are the ones `wo sanitize` would use, so a value left
+out reads as the default standing in for it rather than as a blank:
+
+```
+$ wo where --show
+Directory      /Users/felix/Source/some-project
+Repository     /Users/felix/Source/some-project
+Config         /Users/felix/.config/working_on/config.yaml
+Project        Learning Platform Development (188362780)
+
+Settings
+  location                   America/New_York
+  day_first                  false
+  date_layout                1/2/2006
+  date_time_layout           1/2/2006 03:04pm
+  toggl_api_token            set
+  toggl_wid                  1562374
+  toggl_pid_required         true
+  toggl_task_required        true
+  toggl_default_pid          188362780
+  toggl_default_task         87708632
+  toggl_default_description  not set
+
+Sanitize
+  snap                       5m
+  short                      15m
+  no_work                    12:00-13:00
+  day_ends                   17:30
+
+Templates      ds, call
+```
+
+Your API token is never printed, only whether there is one - this is output that ends up pasted into bug reports.
+A setting that cannot be read fails here the same way it would fail the command that uses it, naming the setting
+rather than showing a half-parsed version of it.
+
 ## JSON
 
 Every command that prints anything takes `--json` and answers with one document instead:
