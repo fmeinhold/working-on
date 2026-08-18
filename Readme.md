@@ -555,7 +555,33 @@ A run with nobody to ask - a script, a cron job - never blocks on the question; 
 
 ## Releasing
 
-Tagging is the whole release process:
+Tagging is the whole release process - the version lives in the tag and nowhere else, so there is no file to
+bump before cutting one:
+
+```
+make release-patch     # v0.3.1 -> v0.3.2
+make release-minor     # v0.3.1 -> v0.4.0
+make release-major     # v0.3.1 -> v1.0.0
+make release VERSION=v1.2.3
+```
+
+Each works out the next version from the highest tag there has ever been - not the nearest one behind HEAD,
+which is a different question once a fix has been tagged on an older branch - and then refuses to go on unless
+the tree is clean, you are on `main`, `main` is in step with the remote, the tests pass, and the tag is not
+already there. It shows what it is about to cut and asks before pushing:
+
+```
+$ make release-patch
+Releasing v0.3.1 -> v0.3.2 from 8fc89e7 on main
+Testing...
+Tag and push v0.3.2? [y/N]
+```
+
+`make version` prints what the last release was. `YES=1` answers the prompt for an unattended run, `SKIP_TESTS=1`
+leaves the tests to CI, and `ANY_BRANCH=1`, `BRANCH=` and `REMOTE=` cover releasing from somewhere other than
+`main` on `origin`. The work is in `scripts/release.sh`, which runs on its own just as well.
+
+By hand it is two commands, and the workflow cannot tell the difference:
 
 ```
 git tag -a v0.2.0 -m "v0.2.0"
