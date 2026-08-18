@@ -186,3 +186,23 @@ func TestTimeLayoutIsTheTimeHalfOfTheConfiguredLayout(t *testing.T) {
 		t.Errorf("got %q, want %q", got, "15:04")
 	}
 }
+
+// The id is what `wo modify --id` is given, and the listing is the only place
+// a person can read one - a document is not something you copy a number out of
+// halfway through a day.
+func TestRenderDayCarriesTheIdToTypeBackIn(t *testing.T) {
+	cfg := nowConfig(t)
+
+	day := time.Date(2026, 8, 6, 0, 0, 0, 0, &cfg.Settings.Location)
+	entry := finished(time.Date(2026, 8, 6, 7, 0, 0, 0, time.UTC), 90, "Refactoring the arg parser")
+	entry.Id = 4519813533
+
+	out := RenderDay(day, []toggl.TimeEntry{entry}, cfg, noNames)
+
+	if !strings.Contains(out, "4519813533") {
+		t.Errorf("the listing does not carry the entry id:\n%s", out)
+	}
+	if !strings.Contains(out, "Id") {
+		t.Errorf("the listing has no Id heading:\n%s", out)
+	}
+}

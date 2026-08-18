@@ -420,7 +420,7 @@ wo modify -m "LP3-412: importer retry"
 wo modify --id 4520482208 --stop 17:30
 ```
 
-Ids come from `wo show <date> --json` - the human listing does not print them.
+Ids come from the `wo show <date> -l` listing, which leads each row with one, or from `wo show --json`.
 
 A time is a time of day on the day the entry belongs to, so `--stop 17:00` needs no date even when you are fixing
 yesterday. Give one - `"yesterday 9:00"`, a weekday, or a date in your configured layout - where the entry runs

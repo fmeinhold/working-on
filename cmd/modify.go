@@ -30,7 +30,7 @@ func NewModifyCommand(cfg *workingon.Config) *cobra.Command {
 
 With no --id this is about the timer running now, or the last entry there was
 where nothing is running. Any other entry is named by id, which
-` + "`wo show <date> --json`" + ` reports:
+` + "`wo show <date> -l`" + ` lists:
 
   wo modify --stop 17:00
   wo modify --start 9:00 --stop 10:30

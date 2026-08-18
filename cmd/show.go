@@ -151,6 +151,7 @@ func RenderDay(day time.Time, entries []toggl.TimeEntry, cfg *workingon.Config,
 	clock := timeLayout(cfg)
 
 	type row struct {
+		id          string
 		start       string
 		end         string
 		duration    string
@@ -178,6 +179,7 @@ func RenderDay(day time.Time, entries []toggl.TimeEntry, cfg *workingon.Config,
 		anyRunning = anyRunning || entry.IsRunning()
 
 		rows = append(rows, row{
+			id:          strconv.Itoa(entry.Id),
 			start:       entry.Start.In(loc).Format(clock),
 			end:         entryEnd(entry, clock, loc),
 			duration:    tableDuration(duration),
@@ -190,7 +192,9 @@ func RenderDay(day time.Time, entries []toggl.TimeEntry, cfg *workingon.Config,
 	table := simpletable.New()
 	table.SetStyle(simpletable.StyleCompactLite)
 
-	headings := []string{"Start", "End", "Duration", "Description"}
+	// The id leads the row because it is the one field here that is typed back
+	// in rather than read: `wo modify --id` has no other source for it.
+	headings := []string{"Id", "Start", "End", "Duration", "Description"}
 	if hasProject {
 		headings = append(headings, "Project")
 	}
@@ -204,7 +208,7 @@ func RenderDay(day time.Time, entries []toggl.TimeEntry, cfg *workingon.Config,
 	}
 
 	for _, r := range rows {
-		values := []string{r.start, r.end, r.duration, r.description}
+		values := []string{r.id, r.start, r.end, r.duration, r.description}
 		if hasProject {
 			values = append(values, r.project)
 		}
@@ -219,7 +223,7 @@ func RenderDay(day time.Time, entries []toggl.TimeEntry, cfg *workingon.Config,
 		table.Body.Cells = append(table.Body.Cells, cells)
 	}
 
-	footer := []string{"Total", "", tableDuration(total)}
+	footer := []string{"", "Total", "", tableDuration(total)}
 	for len(footer) < len(headings) {
 		footer = append(footer, "")
 	}

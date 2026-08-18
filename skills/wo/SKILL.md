@@ -222,8 +222,8 @@ already running for the same thing, say so instead of restarting it.
 
 `wo modify` edits an entry that is already there. With no `--id` it is about
 the timer running now, or the last entry there was where nothing is running.
-`--id` names any other entry - `wo show [date] --json` has the ids, and the
-human listing does not print them.
+`--id` names any other entry - `wo show [date] --json` has the ids, as does the
+`wo show [date] -l` listing a person reads.
 
 ```
 wo modify --stop 17:00 --json
