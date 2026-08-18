@@ -61,6 +61,7 @@ func Execute() {
 		NewNowCommand(cfg),
 		NewShowCommand(cfg),
 		NewSanitizeCommand(cfg),
+		NewModifyCommand(cfg),
 		NewStopCommand(cfg),
 		NewContinueCommand(cfg),
 		NewCacheCommand(cfg),

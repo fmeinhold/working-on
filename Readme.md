@@ -397,6 +397,58 @@ when you start it until you stop it. So `wo start ds` begins the standup now, wh
 Aliases are matched case insensitively, and are looked up after task keys but before task names - so an alias never
 shadows a real task id, and a task whose name happens to match an alias yields to it.
 
+## Changing an entry
+
+`wo modify` edits an entry that is already there. With no `--id` it means the timer running now, or the last entry
+there was where nothing is running - which between them cover the two things you notice straight away: that you
+started an hour ago and forgot, and that you filed the last stretch under the wrong project.
+
+```
+$ wo modify --stop 17:00
+Modified  "DBQ import"
+  stop     still running -> 05:00pm
+  length   running -> 8h 15m
+```
+
+What you leave out is left alone. Only the fields that moved are printed, so the line you are checking is not
+buried under the ones that did not.
+
+```
+wo modify --start 9:00 --stop 10:30
+wo modify --project "LaunchCycle 3.0" --task "05 Front End Development"
+wo modify -m "LP3-412: importer retry"
+wo modify --id 4520482208 --stop 17:30
+```
+
+Ids come from `wo show <date> --json` - the human listing does not print them.
+
+A time is a time of day on the day the entry belongs to, so `--stop 17:00` needs no date even when you are fixing
+yesterday. Give one - `"yesterday 9:00"`, a weekday, or a date in your configured layout - where the entry runs
+somewhere else. A `--stop` that falls before the start is read as the following morning, which is what a shift over
+midnight is, and one that says its own date is taken at its word and refused if it runs backwards.
+
+Three rules worth knowing, because they are choices rather than consequences:
+
+- **Moving a start leaves the stop where it was.** The entry gets longer or shorter rather than sliding along the
+  day: "start it at nine" is a statement about when work began.
+- **A `--stop` on a running timer ends it there.** That is how a day you forgot to stop gets its evening back.
+- **A task cannot follow the entry to another project.** Change the project without naming a task and the entry is
+  left without one, which is said out loud rather than done quietly.
+
+`--dry` shows the change and stops, the same as everywhere else. `--json` answers with the entry as it now stands,
+the one it replaced beside it, and a list of what moved:
+
+```
+$ wo modify --stop 17:00 --json
+{
+  "action": "modified",
+  "entry": { "id": 4510033242, "start": "...", "stop": "...", "seconds": 29700, "running": false },
+  "was":   { "id": 4510033242, "start": "...", "seconds": 8610, "running": true },
+  "changed": ["stopped"],
+  "saved": true
+}
+```
+
 ## Tidying a day
 
 A day tracked as you go is ragged: entries start at 09:03:47, a note you typed while doing something else sits as

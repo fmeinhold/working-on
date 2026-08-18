@@ -153,6 +153,38 @@ func (t *TimeEntries) Update(timeEntry *TimeEntry) (*TimeEntry, error) {
 	return &res, nil
 }
 
+// Find reads one entry by id, for the commands that are handed one rather than
+// asking what is running. v9 answers with the entry unwrapped.
+func (t *TimeEntries) Find(id int) (*TimeEntry, error) {
+	if id == 0 {
+		return nil, errors.New("no time entry id given")
+	}
+
+	message, err := t.client.NewMessage("GET", fmt.Sprintf("me/%s/%d", Endpoint, id), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	// The id was almost certainly typed by hand, so a failure says which one
+	// it was rather than leaving "not found" to stand on its own.
+	data, err := t.client.SendRequest(message)
+	if err != nil {
+		return nil, fmt.Errorf("looking up time entry %d: %w", id, err)
+	}
+
+	var entry *TimeEntry
+	if err := json.Unmarshal(*data, &entry); err != nil {
+		return nil, err
+	}
+
+	// Some ids come back as a null rather than as a failure.
+	if entry == nil || entry.Id == 0 {
+		return nil, fmt.Errorf("there is no time entry with id %d", id)
+	}
+
+	return entry, nil
+}
+
 func (t *TimeEntries) List(start *time.Time, end *time.Time) (*TimeEntryList, error) {
 	base, err := url.Parse(fmt.Sprintf("me/%s", Endpoint))
 	if err != nil {

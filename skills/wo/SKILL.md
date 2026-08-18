@@ -105,6 +105,7 @@ That particular error is the ordinary "nothing to stop" case, not a fault.
 | Stop it | `wo stop --json` | `{action: "stopped", entry}` |
 | Carry on with the last thing | `wo continue --json` | `{action: "continued", entry}` |
 | Book a finished stretch | `wo add "<description>" <start> <duration> --json` | `{action: "added", entry}` |
+| Change one that is there | `wo modify <flags> --json` | `{action: "modified", entry, was, changed, saved}` |
 | A day's entries | `wo show [date] --json` | `{date, entries, total_seconds}` |
 | Projects | `wo projects --json` | `{projects, current_project}` |
 | Tasks for this project | `wo tasks --json` | `{tasks, project, hidden_archived}` |
@@ -149,6 +150,7 @@ That last row is the trap: **keep the description in one quoted argument.**
 |---|---|
 | `start` | `-a, --append` · `-c, --continue` · `-d, --dry` · `-p, --project <id\|name>` · `--task <id\|name>` · `--pick-task` · `-t, --templateArgs k=v` · `-w, --wid <id>` |
 | `add` | the same, plus `-s, --stop <time>` and `-f, --fuzzy`; no `--continue` |
+| `modify` | `--id <n>` · `--start <time>` · `-s, --stop <time>` · `-p, --project <id\|name>` · `--task <id\|name>` · `-m, --description <text>` · `-d, --dry` |
 | `continue` | `-d, --dry` · `-a, --append` · `--pick-task` |
 | `where` | `-s, --show` |
 | `stop`, `now`, `templates` | none worth passing (`now` also has `-p, --prompt`, for shell prompts) |
@@ -215,6 +217,37 @@ resolves before committing to it.
 
 Before starting something new, `wo now --json` is worth a look - if a timer is
 already running for the same thing, say so instead of restarting it.
+
+## Changing an entry
+
+`wo modify` edits an entry that is already there. With no `--id` it is about
+the timer running now, or the last entry there was where nothing is running.
+`--id` names any other entry - `wo show [date] --json` has the ids, and the
+human listing does not print them.
+
+```
+wo modify --stop 17:00 --json
+wo modify --id 4520482208 --start 9:00 --project "LaunchCycle 3.0" --json
+```
+
+**What you leave out is left alone**, so name only what changes. Times are a
+time of day on the day the entry belongs to - `--stop 17:00` needs no date even
+for yesterday's entry - and a `--stop` before the start is read as the next
+morning. Give a date (`--stop "yesterday 17:00"`) to mean another day.
+
+Three behaviours to state when you report what you did, because they are
+choices the user cannot see from the command:
+
+- Moving a start leaves the stop where it was, so the entry changes length
+  rather than sliding along the day.
+- A `--stop` on a running timer ends it there.
+- Changing the project without naming a task leaves the entry with no task: a
+  task belongs to the project it was made in. `changed` says so.
+
+`--dry` shows the change without saving, and `saved` in the document says which
+happened. **These are hours the user already worked** - never modify a past
+entry unless they asked for that change, and read the `was` and `entry` pair
+back to them rather than reporting "done".
 
 ## Tidying a day
 
