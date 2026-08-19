@@ -54,6 +54,16 @@ func ContinueLast(cfg *Config, req EntryRequest) (*toggl.TimeEntry, error) {
 		return nil, err
 	}
 
+	return finishContinuation(client, cfg, timeEntry, req)
+}
+
+// finishContinuation puts the copy on the clock and saves it. It is shared
+// with ContinueEntry, so continuing something chosen from the recent listing
+// is the same act as continuing the last thing, differing only in what is
+// being copied.
+func finishContinuation(client *toggl.Toggl, cfg *Config,
+	timeEntry *toggl.TimeEntry, req EntryRequest) (*toggl.TimeEntry, error) {
+
 	start := req.Start
 	if start.IsZero() {
 		start = time.Now()
@@ -95,6 +105,12 @@ func continuationOf(client *toggl.Toggl) (*toggl.TimeEntry, error) {
 		return nil, fmt.Errorf("%q is already running", previous.Description)
 	}
 
+	return copyOf(previous), nil
+}
+
+// copyOf is what a continuation carries over: what the work was, and nowhere
+// near when it happened.
+func copyOf(previous *toggl.TimeEntry) *toggl.TimeEntry {
 	return &toggl.TimeEntry{
 		Description: previous.Description,
 		WorkspaceId: previous.WorkspaceId,
@@ -103,7 +119,7 @@ func continuationOf(client *toggl.Toggl) (*toggl.TimeEntry, error) {
 		Billable:    previous.Billable,
 		Tags:        previous.Tags,
 		CreatedWith: toggl.CreatedWith,
-	}, nil
+	}
 }
 
 // A toggl task key is just its numeric id, which the entry already links to

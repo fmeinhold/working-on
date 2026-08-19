@@ -397,6 +397,49 @@ when you start it until you stop it. So `wo start ds` begins the standup now, wh
 Aliases are matched case insensitively, and are looked up after task keys but before task names - so an alias never
 shadows a real task id, and a task whose name happens to match an alias yields to it.
 
+## Picking up where you left off
+
+`wo continue` starts a fresh timer carrying the last entry's description, project and task. The block it copies
+keeps its own record - this does not reopen it.
+
+`--recent` offers the last ten things you worked on instead, newest first, and starts the one you pick:
+
+```
+$ wo continue --recent
+
+The last 10 things you worked on:
+  1) LP2 legacy DB dump for re-import · Learning Platform Development · 05 Front End Development  (8/19/2026 08:10am)
+  2) Mailpit for local email dev · LaunchCycle 3.0 · 05 Front End Development  (8/18/2026 08:10am)
+  3) LP3-4: DBQ OAuth app + Basil role groups · Learning Platform Development · 05 Front End…  (8/17/2026 04:15pm)
+  ...
+Which one: 2
+```
+
+The listing looks back 30 days, folds the same work booked over and over into one line - same description, project
+and task - and leaves out a timer that is still running, since there is nothing to continue about work that has not
+stopped.
+
+A query narrows it, matching letters in order rather than as a run, so it is the shape of the thing you want rather
+than its spelling:
+
+```
+wo continue --recent oauth
+wo continue --recent dbqoauth      # finds "LP3-4: DBQ OAuth app"
+wo continue --recent "lp3 dbq"
+```
+
+Letters that run together score above scattered ones and a word start above the middle of a word, so the obvious
+answer comes first; ties keep their recency, so this morning beats three weeks ago. Typing at the `Which one`
+prompt narrows the same way, and `*` brings the whole list back.
+
+With nobody to ask - a script, or `--json` - a query that leaves exactly one entry starts it, and anything else is
+an error naming what it found:
+
+```
+$ wo continue --recent import --json
+{"error": "3 recent entries match \"import\" - narrow it down: \"DBQ import\", \"LP2 legacy DB dump for re-import\", \"Importer retry\""}
+```
+
 ## Changing an entry
 
 `wo modify` edits an entry that is already there. With no `--id` it means the timer running now, or the last entry

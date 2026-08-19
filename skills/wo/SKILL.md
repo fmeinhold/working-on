@@ -104,6 +104,7 @@ That particular error is the ordinary "nothing to stop" case, not a fault.
 | Start a timer | `wo start "<description>" --json` | `{action: "started", entry}` |
 | Stop it | `wo stop --json` | `{action: "stopped", entry}` |
 | Carry on with the last thing | `wo continue --json` | `{action: "continued", entry}` |
+| Carry on with something older | `wo continue --recent "<query>" --json` | `{action: "continued", entry}` |
 | Book a finished stretch | `wo add "<description>" <start> <duration> --json` | `{action: "added", entry}` |
 | Change one that is there | `wo modify <flags> --json` | `{action: "modified", entry, was, changed, saved}` |
 | A day's entries | `wo show [date] --json` | `{date, entries, total_seconds}` |
@@ -151,7 +152,7 @@ That last row is the trap: **keep the description in one quoted argument.**
 | `start` | `-a, --append` · `-c, --continue` · `-d, --dry` · `-p, --project <id\|name>` · `--task <id\|name>` · `--pick-task` · `-t, --templateArgs k=v` · `-w, --wid <id>` |
 | `add` | the same, plus `-s, --stop <time>` and `-f, --fuzzy`; no `--continue` |
 | `modify` | `--id <n>` · `--start <time>` · `-s, --stop <time>` · `-p, --project <id\|name>` · `--task <id\|name>` · `-m, --description <text>` · `-d, --dry` |
-| `continue` | `-d, --dry` · `-a, --append` · `--pick-task` |
+| `continue [query]` | `-d, --dry` · `-a, --append` · `-r, --recent` · `--pick-task` |
 | `where` | `-s, --show` |
 | `stop`, `now`, `templates` | none worth passing (`now` also has `-p, --prompt`, for shell prompts) |
 | `show [date]` | `-l, --list` · `--from <hour>` · `--to <hour>` |
@@ -163,6 +164,12 @@ What the less obvious ones do:
 
 - `--append` back-dates the start to where the last entry stopped, so the gap
   since then belongs to this entry.
+- `--recent` on `continue` picks from the last few things worked on rather than
+  the last one, and a query narrows that listing by fuzzy match. **Under
+  `--json` it needs a query that leaves exactly one entry** - anything else is
+  an error naming what it found, since there is nobody to put the choice to.
+  So: pass a query specific enough to land on one, and read the error's list to
+  narrow it if it does not.
 - `--continue` (or the `continue` command) starts a fresh entry carrying the
   last one's description, project and task, and takes no summary of its own.
 - `--dry` does the whole thing and reports the entry it *would* have created,
@@ -217,6 +224,25 @@ resolves before committing to it.
 
 Before starting something new, `wo now --json` is worth a look - if a timer is
 already running for the same thing, say so instead of restarting it.
+
+## Picking something up again
+
+`wo continue --json` carries on with the last entry. Where the user means
+something older - "carry on with the DBQ import", "back to what I was doing
+this morning" - `--recent` with a query is the way:
+
+```
+wo continue --recent "dbq oauth" --json
+```
+
+The query matches letters in order rather than as a run, over the description,
+project and task, across the last 30 days. Repeated work is folded into one
+entry and a running timer is left out.
+
+With `--json` there is nobody to ask, so **exactly one match is started and
+anything else is an error** listing what matched. Read that list and try a
+longer query rather than guessing - continuing the wrong thing books time
+against the wrong project.
 
 ## Changing an entry
 

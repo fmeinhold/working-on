@@ -443,6 +443,14 @@ const showAll = "*"
 // starts from the full list, so a second filter replaces the first rather than
 // digging further into it.
 func pickOne(prompt *prompter, question string, names []string) int {
+	return pickOneMatching(prompt, question, names, matching)
+}
+
+// pickOneMatching is pickOne with the narrowing left to the caller, for a
+// listing whose own idea of a match is not "contains this text".
+func pickOneMatching(prompt *prompter, question string, names []string,
+	match func(names []string, filter string) []int) int {
+
 	matches := make([]int, len(names))
 	for i := range names {
 		matches[i] = i
@@ -471,7 +479,7 @@ func pickOne(prompt *prompter, question string, names []string) int {
 			filter = ""
 		}
 
-		narrowed := matching(names, filter)
+		narrowed := match(names, filter)
 		if len(narrowed) == 0 {
 			fmt.Fprintf(prompt.out, "Nothing matches %q - try something shorter, "+
 				"or %s for the whole list.\n", answer, showAll)
