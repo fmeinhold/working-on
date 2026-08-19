@@ -26,8 +26,8 @@ func NewContinueCommand(cfg *workingon.Config) *cobra.Command {
 
 	command := &cobra.Command{
 		Use:   "continue [query]",
-		Short: "Continue the last time entry",
-		Long: `Continue the last time entry.
+		Short: "Continue the last time entry, or an earlier one",
+		Long: `Continue the last time entry, or an earlier one.
 
 Opens a new running timer with the same description, project and task as the
 most recent entry. The earlier block keeps its own record - this does not
