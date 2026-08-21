@@ -103,6 +103,29 @@ func parseClockMinute(value string) (int, error) {
 	return hour*60 + minute, nil
 }
 
+// EndOfDay is an entry that ran past midnight, put to whoever can say where it
+// should have stopped.
+type EndOfDay struct {
+	Entry toggl.TimeEntry
+
+	// Began and RanUntil are the entry as tracked, in the zone the day is read
+	// in. RanUntil is how far a timer that is still going has got.
+	Began    time.Time
+	RanUntil time.Time
+
+	Running bool
+
+	// Suggested is the end of day, which is the answer on offer. It is zero
+	// where no day_ends is set, and where the entry began after one - neither
+	// leaves anything honest to suggest, and the question is asked without it.
+	Suggested time.Time
+}
+
+// EndOfDayAsker answers where an entry that ran past midnight should have
+// stopped. The zero time leaves the entry exactly as it was tracked, which is
+// what somebody who did work through the night says.
+type EndOfDayAsker func(EndOfDay) time.Time
+
 // Sanitizer tidies a day's worth of time entries: it rounds ragged times off
 // and hands the gaps between entries to whichever entry they belong to.
 //
@@ -129,6 +152,12 @@ type Sanitizer struct {
 	// It is a time of day rather than an instant, for the same reason a Zone
 	// is: it is 18:00 that the day ends at, whichever day is being tidied.
 	DayEnds *int
+
+	// AskEndOfDay is put an entry that ran past midnight, to be told when it
+	// really stopped. Leave it nil - a script, a cron job, anywhere there is
+	// nobody to ask - and such an entry is capped at DayEnds unasked, as every
+	// other overlong entry is.
+	AskEndOfDay EndOfDayAsker
 
 	// Location is the zone the day is read in.
 	Location *time.Location
@@ -237,6 +266,12 @@ type span struct {
 	// nothing bounds the entry.
 	ceiling time.Time
 
+	// tracked is where the entry finished as it stands in toggl. Ending a day
+	// for an entry moves finish, so that the tidying which follows treats it
+	// as the ordinary entry it has become - and an adjustment has to be
+	// measured against what was tracked rather than against that.
+	tracked time.Time
+
 	notes []string
 }
 
@@ -290,7 +325,7 @@ func (s Sanitizer) Plan(entries []toggl.TimeEntry) []Adjustment {
 
 	var plan []Adjustment
 	for _, sp := range spans {
-		if sp.newBegin.Equal(sp.begin) && sp.newFinish.Equal(sp.finish) {
+		if sp.newBegin.Equal(sp.begin) && sp.newFinish.Equal(sp.tracked) {
 			continue
 		}
 
@@ -330,9 +365,10 @@ func (s Sanitizer) spans(entries []toggl.TimeEntry) []*span {
 		sp := &span{
 			entry: entry, begin: begin, finish: finish,
 			newBegin: begin, newFinish: finish,
-			fixed: entry.IsRunning(),
+			tracked: finish,
+			fixed:   entry.IsRunning(),
 		}
-		s.capToDayEnd(sp)
+		s.endTheDay(sp)
 
 		spans = append(spans, sp)
 	}
@@ -344,17 +380,68 @@ func (s Sanitizer) spans(entries []toggl.TimeEntry) []*span {
 	return spans
 }
 
-// This is what a timer left running overnight comes to. It did not run until
-// you opened the laptop again the next morning; it ran until you left, and the
-// end of the day is the closest thing to that anyone can say afterwards. A
-// timer still going is ended there too - the entry has already outlived the
-// day it belongs to, so there is nothing left worth leaving alone.
-func (s Sanitizer) capToDayEnd(sp *span) {
-	if s.DayEnds == nil {
+// An entry that ran past midnight is not a long day, it is one nobody stopped,
+// and where there is somebody to ask, only they can say when it really ended.
+// Everything else - a day that simply ran on - is cut back to the end of it
+// without asking, as it always was.
+func (s Sanitizer) endTheDay(sp *span) {
+	if s.AskEndOfDay != nil && ranPastMidnight(sp) {
+		s.askWhenItEnded(sp)
 		return
 	}
 
-	end := startOfDate(sp.begin).Add(time.Duration(*s.DayEnds) * time.Minute)
+	s.capToDayEnd(sp)
+}
+
+// You do not work through to the next morning by accident, so the date moving
+// under an entry is what marks one out from a day that merely ran late.
+func ranPastMidnight(sp *span) bool {
+	return !startOfDate(sp.finish).Equal(startOfDate(sp.begin))
+}
+
+// askWhenItEnded puts the entry to whoever is there, with the end of day as the
+// answer on offer - which is the same time the cap would have given it, only
+// said out loud and open to being overruled.
+func (s Sanitizer) askWhenItEnded(sp *span) {
+	suggested := s.dayEndOn(sp.begin)
+
+	// An entry that began after the day was already over cannot be offered it:
+	// it would end the entry before it started. There is still a question worth
+	// asking, only without an answer to put in front of it.
+	if !suggested.IsZero() && !suggested.After(sp.begin) {
+		suggested = time.Time{}
+	}
+
+	ended := s.AskEndOfDay(EndOfDay{
+		Entry:     sp.entry,
+		Began:     sp.begin,
+		RanUntil:  sp.finish,
+		Running:   sp.fixed,
+		Suggested: suggested,
+	})
+
+	// Left alone, or given a time the entry could not have stopped at. Somebody
+	// was asked and did not say, and an entry nobody will vouch for is left
+	// exactly as it was tracked.
+	if ended.IsZero() || !ended.After(sp.begin) || ended.After(sp.finish) {
+		return
+	}
+
+	sp.note(dayEndedNote(sp.fixed, ended.Equal(suggested)))
+	cutBackTo(sp, ended)
+}
+
+// This is what a timer left running overnight comes to when there is nobody to
+// ask. It did not run until you opened the laptop again the next morning; it
+// ran until you left, and the end of the day is the closest thing to that
+// anyone can say afterwards. A timer still going is ended there too - the entry
+// has already outlived the day it belongs to, so there is nothing left worth
+// leaving alone.
+func (s Sanitizer) capToDayEnd(sp *span) {
+	end := s.dayEndOn(sp.begin)
+	if end.IsZero() {
+		return
+	}
 
 	// An entry that began after the day was already over is not one this can
 	// help: there is no honest end to give it, and pulling it back to before it
@@ -363,18 +450,44 @@ func (s Sanitizer) capToDayEnd(sp *span) {
 		return
 	}
 
-	if sp.fixed {
-		sp.note("stopped at end of day")
-	} else {
-		sp.note("capped at end of day")
+	sp.note(dayEndedNote(sp.fixed, true))
+	cutBackTo(sp, end)
+}
+
+// dayEndOn places the end of the working day on the date an entry began. Zero
+// where no such time is set, and there is nothing to place.
+func (s Sanitizer) dayEndOn(begin time.Time) time.Time {
+	if s.DayEnds == nil {
+		return time.Time{}
 	}
 
-	// Cut short, it is an ordinary entry again - it has an end, so the rest of
-	// the tidying may round it off and close the gaps around it as it would any
-	// other. The ceiling is what keeps that from undoing the cap.
+	return startOfDate(begin).Add(time.Duration(*s.DayEnds) * time.Minute)
+}
+
+// cutBackTo ends an entry that outlived its day. Cut short, it is an ordinary
+// entry again - it has an end, so the rest of the tidying may round it off and
+// close the gaps around it as it would any other. The ceiling is what keeps
+// that from handing back the night it was just relieved of.
+func cutBackTo(sp *span, end time.Time) {
 	sp.finish, sp.newFinish = end, end
 	sp.fixed = false
 	sp.ceiling = end
+}
+
+// dayEndedNote says which of the four things happened, since "capped at end of
+// day" on an entry somebody gave a time to would be telling them something they
+// did not do.
+func dayEndedNote(running, atDayEnd bool) string {
+	switch {
+	case running && atDayEnd:
+		return "stopped at end of day"
+	case running:
+		return "stopped where you said"
+	case atDayEnd:
+		return "capped at end of day"
+	default:
+		return "cut back to where you said"
+	}
 }
 
 // snapToGrid rounds ragged times off, so a day reads as clock times rather than
@@ -407,6 +520,13 @@ func (s Sanitizer) snapToGrid(spans []*span) {
 		// times. Leave it be: an overlap that was already there is not what
 		// tidying is for.
 		if i > 0 && begin.Before(spans[i-1].newFinish) {
+			continue
+		}
+
+		// An entry already on the grid has not been rounded, whatever else
+		// may have moved it - saying "snapped" of one that did not move would
+		// be crediting the tidying with somebody else's work.
+		if begin.Equal(sp.newBegin) && finish.Equal(sp.newFinish) {
 			continue
 		}
 

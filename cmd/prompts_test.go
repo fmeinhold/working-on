@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fefeme/workingon/toggl"
 	"github.com/fefeme/workingon/workingon"
@@ -170,5 +171,114 @@ func TestTemplateArgAskerIsAbsentWithoutATerminal(t *testing.T) {
 	}
 	if templateArgAsker(true) == nil {
 		t.Error("got no asker for an interactive run")
+	}
+}
+
+// overnightAsk is the entry the question is about: begun at 17:05 and found the
+// next morning with the timer still going.
+func overnightAsk(offer bool) workingon.EndOfDay {
+	began := time.Date(2026, time.August, 6, 17, 5, 0, 0, time.UTC)
+
+	ask := workingon.EndOfDay{
+		Entry:    toggl.TimeEntry{Description: "DBQ import", Start: &began, Duration: -1},
+		Began:    began,
+		RanUntil: time.Date(2026, time.August, 7, 9, 12, 0, 0, time.UTC),
+		Running:  true,
+	}
+
+	if offer {
+		ask.Suggested = time.Date(2026, time.August, 6, 18, 0, 0, 0, time.UTC)
+	}
+
+	return ask
+}
+
+func askedEndOfDay(typed string, ask workingon.EndOfDay) (time.Time, string) {
+	out := &bytes.Buffer{}
+	asker := endOfDayAskerFor(sanitizeConfig(), strings.NewReader(typed), out)
+
+	return asker(ask), out.String()
+}
+
+func TestEndOfDayAskerTakesTheEndOfDayOnOffer(t *testing.T) {
+	got, out := askedEndOfDay("\n", overnightAsk(true))
+
+	if want := time.Date(2026, time.August, 6, 18, 0, 0, 0, time.UTC); !got.Equal(want) {
+		t.Errorf("stopped at %s, want the offered %s", got, want)
+	}
+	if !strings.Contains(out, "[18:00]") {
+		t.Errorf("the end of day was not offered as the answer:\n%s", out)
+	}
+	if !strings.Contains(out, "DBQ import") || !strings.Contains(out, "past midnight") {
+		t.Errorf("question did not say which entry it was about:\n%s", out)
+	}
+}
+
+// The answer is a time of day on the day the entry belongs to, as every other
+// time in wo is.
+func TestEndOfDayAskerReadsATimeAgainstTheDayItBegan(t *testing.T) {
+	got, _ := askedEndOfDay("19:30\n", overnightAsk(true))
+
+	if want := time.Date(2026, time.August, 6, 19, 30, 0, 0, time.UTC); !got.Equal(want) {
+		t.Errorf("stopped at %s, want %s", got, want)
+	}
+}
+
+// Somebody who worked until two in the morning means the following morning -
+// there is no other two o'clock this entry could have stopped at.
+func TestEndOfDayAskerReadsTheSmallHoursAsTheNextMorning(t *testing.T) {
+	got, _ := askedEndOfDay("2:00\n", overnightAsk(true))
+
+	if want := time.Date(2026, time.August, 7, 2, 0, 0, 0, time.UTC); !got.Equal(want) {
+		t.Errorf("stopped at %s, want the next morning %s", got, want)
+	}
+}
+
+func TestEndOfDayAskerAsksAgainForAnEndTheEntryNeverReached(t *testing.T) {
+	got, out := askedEndOfDay("11:00\n18:30\n", overnightAsk(true))
+
+	if want := time.Date(2026, time.August, 6, 18, 30, 0, 0, time.UTC); !got.Equal(want) {
+		t.Errorf("stopped at %s, want the second answer %s", got, want)
+	}
+	if !strings.Contains(out, "as far as it got") {
+		t.Errorf("did not say why the first answer was no good:\n%s", out)
+	}
+}
+
+func TestEndOfDayAskerAsksAgainForAnEndBeforeItBegan(t *testing.T) {
+	got, out := askedEndOfDay("5.8.2026 12:00\n18:30\n", overnightAsk(true))
+
+	if want := time.Date(2026, time.August, 6, 18, 30, 0, 0, time.UTC); !got.Equal(want) {
+		t.Errorf("stopped at %s, want the second answer %s", got, want)
+	}
+	if !strings.Contains(out, "it cannot have stopped by then") {
+		t.Errorf("did not say why the first answer was no good:\n%s", out)
+	}
+}
+
+func TestEndOfDayAskerAsksAgainForAnAnswerThatIsNotATime(t *testing.T) {
+	got, out := askedEndOfDay("soon\n18:30\n", overnightAsk(true))
+
+	if want := time.Date(2026, time.August, 6, 18, 30, 0, 0, time.UTC); !got.Equal(want) {
+		t.Errorf("stopped at %s, want the second answer %s", got, want)
+	}
+	if !strings.Contains(out, "is not a time") {
+		t.Errorf("did not say why the first answer was no good:\n%s", out)
+	}
+}
+
+// Nothing to offer and nothing said: these are hours somebody worked, and the
+// entry is left exactly as they tracked it.
+func TestEndOfDayAskerLeavesItAloneWhenNobodySays(t *testing.T) {
+	got, out := askedEndOfDay("\n", overnightAsk(false))
+
+	if !got.IsZero() {
+		t.Errorf("stopped at %s, want it left as tracked", got)
+	}
+	if strings.Contains(out, "[") {
+		t.Errorf("offered an answer where there was none to offer:\n%s", out)
+	}
+	if !strings.Contains(out, "Left as it was tracked") {
+		t.Errorf("did not say what it did:\n%s", out)
 	}
 }

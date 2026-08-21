@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"github.com/fefeme/workingon/toggl"
 	"github.com/fefeme/workingon/workingon"
@@ -43,6 +44,79 @@ func describerFor(cfg *workingon.Config, in io.Reader, out io.Writer, interactiv
 
 		return prompt.line("What was it", fallback), nil
 	}
+}
+
+// endOfDayAsker is who `wo sanitize` puts an entry that ran past midnight to.
+// A run with nobody to ask leaves the question unasked, and such an entry is
+// capped at day_ends as it always was.
+func endOfDayAsker(cfg *workingon.Config) workingon.EndOfDayAsker {
+	if !interactive() {
+		return nil
+	}
+	return endOfDayAskerFor(cfg, os.Stdin, os.Stdout)
+}
+
+func endOfDayAskerFor(cfg *workingon.Config, in io.Reader, out io.Writer) workingon.EndOfDayAsker {
+	prompt := &prompter{reader: bufio.NewReader(in), out: out}
+	loc := &cfg.Settings.Location
+	clock := timeLayout(cfg)
+
+	return func(ask workingon.EndOfDay) time.Time {
+		began, ranUntil := ask.Began.In(loc), ask.RanUntil.In(loc)
+
+		// The times are on two different dates by now, so the one that is not
+		// the entry's own has to say which day it is on.
+		show := momentTextOn(began, loc, clock, cfg.Settings.DateTimeLayout)
+
+		fmt.Fprintf(out, "\n%q %s past midnight - it began at %s and has %s on the clock.\n",
+			describedAs(ask.Entry.Description), ranOnOrWasLeft(ask.Running),
+			began.Format(clock), tableDuration(ranUntil.Sub(began)))
+
+		var offered string
+		if !ask.Suggested.IsZero() {
+			offered = ask.Suggested.In(loc).Format(clock)
+		}
+
+		for {
+			answer := prompt.line("When did it stop", offered)
+			if answer == "" {
+				fmt.Fprintln(out, "Left as it was tracked.")
+				return time.Time{}
+			}
+
+			ended, err := parseMoment(cfg, answer, began)
+			if err != nil {
+				fmt.Fprintf(out, "%v\n", err)
+				continue
+			}
+
+			// A time of day that lands before the start is the small hours of
+			// the next morning, which is how `wo modify --stop` reads one too.
+			if !ended.After(began) && !hasDate(cfg, answer) {
+				ended = ended.AddDate(0, 0, 1)
+			}
+
+			switch {
+			case !ended.After(began):
+				fmt.Fprintf(out, "It began at %s, so it cannot have stopped by then.\n",
+					show(&began))
+			case ended.After(ranUntil):
+				fmt.Fprintf(out, "%s is as far as it got, so it cannot have run past that.\n",
+					show(&ranUntil))
+			default:
+				return ended
+			}
+		}
+	}
+}
+
+// An entry with a stop ran on; one still going was left running, which is a
+// thing that happened to it rather than something it did.
+func ranOnOrWasLeft(running bool) string {
+	if running {
+		return "was left running"
+	}
+	return "ran on"
 }
 
 // A run with nobody to ask - a script, a cron job - answers nothing at all, so

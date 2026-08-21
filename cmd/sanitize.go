@@ -43,8 +43,12 @@ and a gap over lunch stays a gap:
     no_work:
       - "12:00-13:00"
 
-day_ends is the time work stops, and is what a timer left running overnight is
-cut back to - including one that is still going, which is ended there:
+An entry that ran past midnight is asked about rather than assumed: it is the
+one thing here nobody does on purpose, and only you know when you actually
+stopped. day_ends is the answer on offer, so pressing enter takes it.
+
+day_ends is the time work stops, and is what an entry that ran on is cut back
+to - including a timer that is still going, which is ended there:
 
   sanitize:
     day_ends: "18:00"
@@ -71,6 +75,7 @@ weekday name for the most recent such day, or a date in your configured layout.`
 			if err != nil {
 				return err
 			}
+			sanitizer.AskEndOfDay = endOfDayAsker(cfg)
 
 			start := startOfDay(day, &cfg.Settings.Location)
 			end := start.AddDate(0, 0, 1)

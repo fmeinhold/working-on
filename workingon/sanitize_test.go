@@ -594,3 +594,207 @@ func TestParseDayEnds(t *testing.T) {
 		})
 	}
 }
+
+// answering is an asker that says the same time however it is asked, and keeps
+// what it was asked so a test can check what was put to it.
+func answering(answer time.Time) (EndOfDayAsker, *EndOfDay) {
+	var asked EndOfDay
+
+	return func(ask EndOfDay) time.Time {
+		asked = ask
+		return answer
+	}, &asked
+}
+
+// The regression this was written for: the cap moved the finish it was about to
+// be compared against, so an entry whose start was already on the grid came out
+// of the plan with nothing to say and was left running.
+func TestSanitizeCapsAnOvernightEntryThatStartedOnTheGrid(t *testing.T) {
+	loc := berlin(t)
+
+	s := endsAt(tidy(loc), 18, 0)
+	s.Now = func() time.Time { return at(loc, 9, 12, 0) }
+
+	got := only(t, s, running("DBQ import", theNightBefore(at(loc, 17, 5, 0))))
+
+	if span := spanned(got, loc); span != "17:05-18:00" {
+		t.Errorf("span = %s, want it ended at 17:05-18:00", span)
+	}
+}
+
+// Nobody works through to the next morning on purpose, so the one entry that
+// cannot be tidied by rule is put to whoever is there.
+func TestSanitizeAsksWhenAnEntryRanPastMidnight(t *testing.T) {
+	loc := berlin(t)
+
+	s := endsAt(tidy(loc), 18, 0)
+	s.Now = func() time.Time { return at(loc, 9, 12, 0) }
+	ask, asked := answering(theNightBefore(at(loc, 19, 30, 0)))
+	s.AskEndOfDay = ask
+
+	got := only(t, s, running("DBQ import", theNightBefore(at(loc, 17, 5, 0))))
+
+	if span := spanned(got, loc); span != "17:05-19:30" {
+		t.Errorf("span = %s, want the answer taken over the end of day", span)
+	}
+	if !strings.Contains(got.Note(), "stopped where you said") {
+		t.Errorf("note = %q, want it to credit the answer", got.Note())
+	}
+	if !asked.Running {
+		t.Error("was not told the timer was still going")
+	}
+	if want := theNightBefore(at(loc, 18, 0, 0)); !asked.Suggested.Equal(want) {
+		t.Errorf("suggested %s, want the end of the day it began on", asked.Suggested)
+	}
+}
+
+// The end of day is the answer on offer, and taking it is the ordinary case -
+// so it reads as the cap it is rather than as something you insisted on.
+func TestSanitizeSaysEndOfDayWhereThatIsTheAnswer(t *testing.T) {
+	loc := berlin(t)
+
+	s := endsAt(tidy(loc), 18, 0)
+	s.Now = func() time.Time { return at(loc, 9, 12, 0) }
+	ask, _ := answering(theNightBefore(at(loc, 18, 0, 0)))
+	s.AskEndOfDay = ask
+
+	got := only(t, s, running("DBQ import", theNightBefore(at(loc, 17, 5, 0))))
+
+	if !strings.Contains(got.Note(), "stopped at end of day") {
+		t.Errorf("note = %q, want the end of day named", got.Note())
+	}
+}
+
+// An entry with a stop of its own was not left running, it ran on - and it is
+// cut back rather than stopped.
+func TestSanitizeCutsBackAnEntryThatWasTrackedPastMidnight(t *testing.T) {
+	loc := berlin(t)
+
+	s := endsAt(tidy(loc), 18, 0)
+	ask, _ := answering(theNightBefore(at(loc, 20, 0, 0)))
+	s.AskEndOfDay = ask
+
+	got := only(t, s, tracked("DBQ import",
+		theNightBefore(at(loc, 17, 5, 0)), at(loc, 9, 12, 0)))
+
+	if span := spanned(got, loc); span != "17:05-20:00" {
+		t.Errorf("span = %s, want it cut back to the answer", span)
+	}
+	if !strings.Contains(got.Note(), "cut back to where you said") {
+		t.Errorf("note = %q, want it to credit the answer", got.Note())
+	}
+}
+
+// Somebody asked and not answering is an answer: these are hours they worked,
+// and an entry nobody will vouch for stays as it was tracked.
+func TestSanitizeLeavesAnOvernightEntryNobodyAnswersFor(t *testing.T) {
+	loc := berlin(t)
+
+	s := endsAt(tidy(loc), 18, 0)
+	s.Now = func() time.Time { return at(loc, 9, 12, 0) }
+	s.AskEndOfDay = func(EndOfDay) time.Time { return time.Time{} }
+
+	if plan := s.Plan([]toggl.TimeEntry{
+		running("DBQ import", theNightBefore(at(loc, 17, 5, 0)))}); len(plan) != 0 {
+		t.Errorf("plan = %v, want the entry left as it was tracked", plan)
+	}
+}
+
+// A day that merely ran late is a thing the rules can settle, and being asked
+// about every long afternoon would be the tidying asking you to do it.
+func TestSanitizeCapsALongDayWithoutAsking(t *testing.T) {
+	loc := berlin(t)
+
+	s := endsAt(tidy(loc), 18, 0)
+	ask, asked := answering(at(loc, 21, 0, 0))
+	s.AskEndOfDay = ask
+
+	got := only(t, s, tracked("DBQ import", at(loc, 9, 0, 0), at(loc, 19, 30, 0)))
+
+	if span := spanned(got, loc); span != "09:00-18:00" {
+		t.Errorf("span = %s, want it capped at the end of day", span)
+	}
+	if asked.Entry.Description != "" {
+		t.Errorf("was asked about %q, want a long day settled by the rules",
+			asked.Entry.Description)
+	}
+}
+
+// Without a day_ends there is nothing to suggest, but there is still a question
+// worth asking - and an answer to it is the only thing that can end this entry.
+func TestSanitizeAsksWithNothingToOfferWhereTheDayHasNoEnd(t *testing.T) {
+	loc := berlin(t)
+
+	s := tidy(loc)
+	s.Now = func() time.Time { return at(loc, 9, 12, 0) }
+	ask, asked := answering(theNightBefore(at(loc, 18, 45, 0)))
+	s.AskEndOfDay = ask
+
+	got := only(t, s, running("DBQ import", theNightBefore(at(loc, 17, 5, 0))))
+
+	if span := spanned(got, loc); span != "17:05-18:45" {
+		t.Errorf("span = %s, want the answer taken", span)
+	}
+	if !asked.Suggested.IsZero() {
+		t.Errorf("suggested %s, want nothing offered where no day_ends is set", asked.Suggested)
+	}
+}
+
+// An evening that began after work was already over is the entry the cap could
+// never help - there is no honest end to give it, but somebody can still say.
+func TestSanitizeAsksAboutAnEveningThatOutlivedItsDay(t *testing.T) {
+	loc := berlin(t)
+
+	s := endsAt(tidy(loc), 18, 0)
+	s.Now = func() time.Time { return at(loc, 9, 12, 0) }
+	ask, asked := answering(theNightBefore(at(loc, 22, 0, 0)))
+	s.AskEndOfDay = ask
+
+	got := only(t, s, running("DBQ import", theNightBefore(at(loc, 19, 0, 0))))
+
+	if span := spanned(got, loc); span != "19:00-22:00" {
+		t.Errorf("span = %s, want the answer taken", span)
+	}
+	if !asked.Suggested.IsZero() {
+		t.Errorf("suggested %s, want an end of day that fell before the start withheld",
+			asked.Suggested)
+	}
+}
+
+// An answer outside the entry would book time it never ran, in either
+// direction, so it is no answer at all.
+func TestSanitizeIgnoresAnEndTheEntryNeverReached(t *testing.T) {
+	loc := berlin(t)
+
+	for name, answer := range map[string]time.Time{
+		"after where the timer got to": at(loc, 10, 0, 0),
+		"before it began":              theNightBefore(at(loc, 16, 0, 0)),
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := endsAt(tidy(loc), 18, 0)
+			s.Now = func() time.Time { return at(loc, 9, 12, 0) }
+			ask, _ := answering(answer)
+			s.AskEndOfDay = ask
+
+			if plan := s.Plan([]toggl.TimeEntry{
+				running("DBQ import", theNightBefore(at(loc, 17, 5, 0)))}); len(plan) != 0 {
+				t.Errorf("plan = %v, want the entry left as it was tracked", plan)
+			}
+		})
+	}
+}
+
+// Rounding an entry that was already on the grid moves nothing, and a row that
+// says "snapped" of it credits the tidying with somebody else's work.
+func TestSanitizeDoesNotClaimToHaveSnappedWhatWasAlreadyOnTheGrid(t *testing.T) {
+	loc := berlin(t)
+
+	s := endsAt(tidy(loc), 18, 0)
+
+	got := only(t, s, tracked("DBQ import",
+		theNightBefore(at(loc, 17, 5, 0)), at(loc, 9, 15, 0)))
+
+	if got.Note() != "capped at end of day" {
+		t.Errorf("note = %q, want the cap on its own", got.Note())
+	}
+}
