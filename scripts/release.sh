@@ -109,4 +109,4 @@ git tag -a "$next" -m "$next"
 git push --quiet "$REMOTE" "refs/tags/$next"
 
 echo "Pushed $next. The release workflow builds it from here:"
-echo "  https://github.com/fefeme/workingon/actions"
+echo "  https://github.com/fmeinhold/working-on/actions"
