@@ -51,7 +51,7 @@ whole workspace task list. Working On keeps a local copy and tops it up with
 small delta requests instead.`,
 	}
 
-	cacheCommand.AddCommand(newCacheClearCommand(), newCacheStatusCommand())
+	cacheCommand.AddCommand(newCacheClearCommand(), newCacheStatusCommand(cfg))
 
 	return cacheCommand
 }
@@ -93,7 +93,7 @@ to be certain.`,
 	}
 }
 
-func newCacheStatusCommand() *cobra.Command {
+func newCacheStatusCommand(cfg *workingon.Config) *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
 		Short: "Show where the task cache lives and whether it exists",
@@ -158,7 +158,8 @@ func newCacheStatusCommand() *cobra.Command {
 				}
 
 				fmt.Printf("%s: %s (%.1f KiB, updated %s)\n", source.GetName(), path,
-					float64(info.Size())/1024, info.ModTime().Format("2006-01-02 15:04:05"))
+					float64(info.Size())/1024,
+					formatMoment(info.ModTime().In(&cfg.Settings.Location), cfg.Settings.DateTimeLayout))
 			}
 
 			if jsonOutput {

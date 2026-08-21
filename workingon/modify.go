@@ -123,7 +123,7 @@ func modify(client *toggl.Toggl, cfg *Config, req ModifyRequest) (*Change, error
 		}
 	}
 
-	if err := settleDuration(&after); err != nil {
+	if err := settleDuration(&after, cfg); err != nil {
 		return nil, err
 	}
 
@@ -153,7 +153,7 @@ func modify(client *toggl.Toggl, cfg *Config, req ModifyRequest) (*Change, error
 // Moving a start leaves the stop where it was: "start it at nine" is a
 // statement about when work began, not a request to slide the whole entry an
 // hour later.
-func settleDuration(entry *toggl.TimeEntry) error {
+func settleDuration(entry *toggl.TimeEntry, cfg *Config) error {
 	if entry.Start == nil || entry.Start.IsZero() {
 		return errors.New("this entry has no start time, so there is nothing to measure from")
 	}
@@ -165,12 +165,24 @@ func settleDuration(entry *toggl.TimeEntry) error {
 
 	if !entry.Stop.After(*entry.Start) {
 		return fmt.Errorf("an entry cannot stop at or before it starts - %s to %s",
-			entry.Start.Format(time.RFC3339), entry.Stop.Format(time.RFC3339))
+			readable(entry.Start, cfg), readable(entry.Stop, cfg))
 	}
 
 	entry.Duration = int64(entry.Stop.Sub(*entry.Start).Seconds())
 
 	return nil
+}
+
+// readable writes a time the way the user reads one - their zone and their
+// layout - since an error is output like any other and a timestamp in UTC
+// tells somebody nothing about the afternoon they are trying to correct.
+func readable(moment *time.Time, cfg *Config) string {
+	layout := cfg.Settings.DateTimeLayout
+	if layout == "" {
+		layout = "2.1.2006 15:04"
+	}
+
+	return moment.In(&cfg.Settings.Location).Format(layout)
 }
 
 func sameMoment(a, b *time.Time) bool {

@@ -114,3 +114,33 @@ func TestRecentChoiceWithoutAStart(t *testing.T) {
 		t.Errorf("choice = %q, want the label on its own", got)
 	}
 }
+
+// Stopping used to print the entry itself, which is Go's idea of a time: a UTC
+// timestamp with the offset on the end. What somebody wants to read is the
+// afternoon they just booked, in their own zone.
+func TestRenderStoppedSpeaksInTheUsersZone(t *testing.T) {
+	cfg := modifyConfig()
+	berlin, err := time.LoadLocation("Europe/Berlin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Settings.Location = *berlin
+
+	start := time.Date(2026, 8, 19, 13, 50, 0, 0, time.UTC)
+	stop := start.Add(90 * time.Minute)
+	entry := &toggl.TimeEntry{
+		Description: "DBQ import", Start: &start, Stop: &stop, Duration: 5400,
+	}
+
+	out := renderStopped(entry, cfg)
+
+	// 13:50 UTC is 15:50 in Berlin, which is where the work happened.
+	if !strings.Contains(out, "19.8.2026 15:50") {
+		t.Errorf("output does not show the local time:\n%s", out)
+	}
+	for _, technical := range []string{"UTC", "+0000", "+02:00", "T13:50"} {
+		if strings.Contains(out, technical) {
+			t.Errorf("output leaks the technical form %q:\n%s", technical, out)
+		}
+	}
+}

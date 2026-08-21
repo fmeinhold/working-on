@@ -30,10 +30,20 @@ func NewStopCommand(cfg *workingon.Config) *cobra.Command {
 			if jsonOutput {
 				return emitEntry("stopped", timeEntry, cfg)
 			}
-			fmt.Printf("Stopped %s. \n", timeEntry)
+			fmt.Print(renderStopped(timeEntry, cfg))
 
 			return nil
 		},
 	}
 	return stopCommand
+}
+
+// renderStopped says what was booked, in the zone and layout the user reads.
+//
+// Not "%s" of the entry: its String is Go's idea of a time - a UTC timestamp
+// with the offset spelled out on the end - which is no way to tell somebody
+// what afternoon they just booked.
+func renderStopped(entry *toggl.TimeEntry, cfg *workingon.Config) string {
+	return fmt.Sprintf("Stopped %s\n",
+		entry.Format(cfg.Settings.DateTimeLayout, &cfg.Settings.Location))
 }

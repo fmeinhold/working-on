@@ -343,3 +343,33 @@ func TestEntryToModifyPrefersTheRunningTimer(t *testing.T) {
 		t.Errorf("entry = %d, want the running one", entry.Id)
 	}
 }
+
+// An error is output too. Told the entry cannot stop before it starts, the
+// person reading has to recognise the times in it as the ones they typed.
+func TestModifyReportsTimesTheWayTheUserReadsThem(t *testing.T) {
+	server := newModifyServer(t, trackedEntry)
+
+	cfg := &Config{}
+	cfg.Settings.DateTimeLayout = "2.1.2006 15:04"
+	berlin, err := time.LoadLocation("Europe/Berlin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Settings.Location = *berlin
+
+	_, err = modify(server.client(), cfg, ModifyRequest{
+		Id:   7,
+		Stop: moment(t, "2026-08-17T08:00:00Z"),
+	})
+	if err == nil {
+		t.Fatal("a stop before the start was accepted")
+	}
+
+	// The entry runs 09:00 to 10:30 UTC, which is 11:00 to 12:30 in Berlin.
+	if !strings.Contains(err.Error(), "17.8.2026 11:00 to 17.8.2026 10:00") {
+		t.Errorf("error = %q, want the times in the user's zone and layout", err)
+	}
+	if strings.Contains(err.Error(), "Z") || strings.Contains(err.Error(), "+02:00") {
+		t.Errorf("error = %q, want no technical timestamps in it", err)
+	}
+}
