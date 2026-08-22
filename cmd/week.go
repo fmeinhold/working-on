@@ -16,16 +16,38 @@ import (
 // them off the side of the terminal.
 const projectsWidth = 44
 
-// weekStart is the Monday of the week a day falls in.
-//
-// Wo reads a week as Monday to Sunday: it is the week work is planned and
-// billed in, whichever day the calendar on the wall begins with.
-func weekStart(day time.Time, loc *time.Location) time.Time {
+// defaultWeekStart is the week nobody configured. Countries disagree about
+// where a week begins, and Monday is the one work is planned and billed in
+// whichever day the calendar on the wall starts with.
+const defaultWeekStart = time.Monday
+
+// parseWeekStart reads the week_starts setting, which is a weekday name -
+// "sunday", or "sun". Left empty it is Monday.
+func parseWeekStart(value string) (time.Weekday, error) {
+	name := strings.ToLower(strings.TrimSpace(value))
+	if name == "" {
+		return defaultWeekStart, nil
+	}
+
+	day, known := weekdays[name]
+	if !known {
+		return 0, fmt.Errorf("week_starts %q is not a day of the week", value)
+	}
+
+	return day, nil
+}
+
+// weekStart is the first day of the week a day falls in, counting back to
+// whichever weekday the week is read from.
+func weekStart(day time.Time, loc *time.Location, starts time.Weekday) time.Time {
 	start := startOfDay(day, loc)
 
-	// Sunday is the last day of the week here, not the first, so it counts as
-	// six days along rather than none.
-	return startOfDay(start.AddDate(0, 0, -((int(start.Weekday())+6)%7)), loc)
+	// How far into its own week the day is. A week read from Monday puts
+	// Sunday six days along rather than none, and one read from Sunday does
+	// the same to Saturday.
+	into := (int(start.Weekday()) - int(starts) + 7) % 7
+
+	return startOfDay(start.AddDate(0, 0, -into), loc)
 }
 
 // dayTotal is one day of the week as the summary reads it.

@@ -40,13 +40,13 @@ func namedProjects(entry *toggl.TimeEntry) entryNames {
 // Whichever day you ask about, the week it belongs to is the one that began on
 // the Monday - including the Sunday, which ends that week rather than opening
 // the next.
-func TestWeekStartIsTheMondayOfThatWeek(t *testing.T) {
+func TestWeekStartIsTheFirstDayOfThatWeek(t *testing.T) {
 	loc := time.UTC
 	want := monday(loc)
 
 	for day := 17; day <= 23; day++ {
 		asked := time.Date(2026, time.August, day, 14, 30, 0, 0, loc)
-		if got := weekStart(asked, loc); !got.Equal(want) {
+		if got := weekStart(asked, loc, time.Monday); !got.Equal(want) {
 			t.Errorf("week of the %dth starts %s, want %s", day, got, want)
 		}
 	}
@@ -64,7 +64,7 @@ func TestWeekStartSurvivesTheClocksChanging(t *testing.T) {
 	sunday := time.Date(2026, time.October, 25, 12, 0, 0, 0, loc)
 	want := time.Date(2026, time.October, 19, 0, 0, 0, 0, loc)
 
-	got := weekStart(sunday, loc)
+	got := weekStart(sunday, loc, time.Monday)
 	if !got.Equal(want) {
 		t.Errorf("week starts %s, want the Monday %s", got, want)
 	}
@@ -241,4 +241,87 @@ func lineWith(text, needle string) string {
 		}
 	}
 	return ""
+}
+
+// Where a week begins is a thing countries and the people in them disagree
+// about, so it is asked rather than assumed.
+func TestWeekStartCountsBackToTheConfiguredDay(t *testing.T) {
+	loc := time.UTC
+
+	for name, tc := range map[string]struct {
+		starts time.Weekday
+		asked  int
+		want   int
+	}{
+		"a Sunday week from its own Sunday":  {time.Sunday, 23, 23},
+		"a Sunday week from the Wednesday":   {time.Sunday, 19, 16},
+		"a Sunday week from the Saturday":    {time.Sunday, 22, 16},
+		"a Monday week from the Sunday":      {time.Monday, 23, 17},
+		"a Saturday week from the Wednesday": {time.Saturday, 19, 15},
+	} {
+		t.Run(name, func(t *testing.T) {
+			asked := time.Date(2026, time.August, tc.asked, 14, 30, 0, 0, loc)
+			want := time.Date(2026, time.August, tc.want, 0, 0, 0, 0, loc)
+
+			if got := weekStart(asked, loc, tc.starts); !got.Equal(want) {
+				t.Errorf("week starts %s, want %s", got, want)
+			}
+		})
+	}
+}
+
+func TestParseWeekStartReadsAWeekdayName(t *testing.T) {
+	for value, want := range map[string]time.Weekday{
+		"":         time.Monday,
+		"monday":   time.Monday,
+		"Sunday":   time.Sunday,
+		"sun":      time.Sunday,
+		"  SAT  ":  time.Saturday,
+		"saturday": time.Saturday,
+	} {
+		t.Run(value, func(t *testing.T) {
+			got, err := parseWeekStart(value)
+			if err != nil {
+				t.Fatalf("parseWeekStart(%q): %v", value, err)
+			}
+			if got != want {
+				t.Errorf("week starts %s, want %s", got, want)
+			}
+		})
+	}
+}
+
+func TestParseWeekStartRefusesWhatIsNotADay(t *testing.T) {
+	if _, err := parseWeekStart("funday"); err == nil {
+		t.Error("read \"funday\" as a day of the week")
+	}
+}
+
+// A week read from Sunday is still seven days, and still ends the day before
+// it began.
+func TestWeekOfFollowsTheConfiguredStart(t *testing.T) {
+	loc := time.UTC
+	start := weekStart(time.Date(2026, time.August, 19, 9, 0, 0, 0, loc), loc, time.Sunday)
+
+	week := weekOf(start, []toggl.TimeEntry{
+		on(loc, 16, 9, 0, time.Hour, "the Sunday", 1),
+		on(loc, 22, 9, 0, time.Hour, "the Saturday", 1),
+		on(loc, 23, 9, 0, time.Hour, "the Sunday after", 1),
+	}, namedProjects)
+
+	if week[0].Day.Weekday() != time.Sunday {
+		t.Errorf("week opens on %s, want Sunday", week[0].Day.Weekday())
+	}
+	if week[0].Entries != 1 || week[6].Entries != 1 {
+		t.Errorf("week runs %d to %d entries, want one at each end",
+			week[0].Entries, week[6].Entries)
+	}
+
+	var total time.Duration
+	for _, day := range week {
+		total += day.Tracked
+	}
+	if total != 2*time.Hour {
+		t.Errorf("total = %s, want the Sunday after left out", total)
+	}
 }

@@ -148,6 +148,7 @@ type settingsJSON struct {
 	DayFirst                bool   `json:"day_first"`
 	DateLayout              string `json:"date_layout,omitempty"`
 	DateTimeLayout          string `json:"date_time_layout,omitempty"`
+	WeekStarts              string `json:"week_starts"`
 	TokenSet                bool   `json:"toggl_api_token_set"`
 	TogglWid                int    `json:"toggl_wid,omitempty"`
 	TogglPidRequired        bool   `json:"toggl_pid_required"`
@@ -176,12 +177,18 @@ func settingsInForce(cfg *workingon.Config) (*configJSON, error) {
 		return nil, err
 	}
 
+	weekStarts, err := parseWeekStart(cfg.Settings.WeekStarts)
+	if err != nil {
+		return nil, err
+	}
+
 	view := &configJSON{
 		Settings: settingsJSON{
 			Location:                cfg.Settings.Location.String(),
 			DayFirst:                cfg.Settings.DayFirst,
 			DateLayout:              cfg.Settings.DateLayout,
 			DateTimeLayout:          cfg.Settings.DateTimeLayout,
+			WeekStarts:              strings.ToLower(weekStarts.String()),
 			TokenSet:                strings.TrimSpace(cfg.Settings.ToggleApiToken) != "",
 			TogglWid:                cfg.Settings.ToggleWid,
 			TogglPidRequired:        cfg.Settings.TogglePidRequired,
@@ -258,6 +265,7 @@ func renderConfigInForce(view *configJSON) string {
 	out += setting("day_first", fmt.Sprintf("%t", view.Settings.DayFirst))
 	out += setting("date_layout", view.Settings.DateLayout)
 	out += setting("date_time_layout", view.Settings.DateTimeLayout)
+	out += setting("week_starts", view.Settings.WeekStarts)
 	out += setting("toggl_api_token", tokenState(view.Settings.TokenSet))
 	out += setting("toggl_wid", number(view.Settings.TogglWid))
 	out += setting("toggl_pid_required", fmt.Sprintf("%t", view.Settings.TogglPidRequired))

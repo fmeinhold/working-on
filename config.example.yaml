@@ -20,6 +20,12 @@ settings:
   date_layout: "2.1.2006"
   date_time_layout: "2.1.2006 15:04"
 
+  # The day `wo show --week` reads a week from, as a weekday name. Countries
+  # disagree about this and so do the people in them - much of the Americas and
+  # Asia begins the week on Sunday, parts of the Middle East on Saturday, and
+  # ISO 8601 on Monday, which is what this is when left out.
+  week_starts: monday
+
   # From https://track.toggl.com/profile
   toggl_api_token: <your toggl api token>
 

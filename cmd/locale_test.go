@@ -174,3 +174,53 @@ func TestTableLayoutsAgreeWithDayFirst(t *testing.T) {
 		}
 	}
 }
+
+func TestLocaleWeekStart(t *testing.T) {
+	isolateLocale(t)
+
+	for _, tc := range []struct {
+		locale string
+		want   string
+	}{
+		{"de_DE.UTF-8", "monday"},
+		{"en_GB.UTF-8", "monday"},
+		{"en_US.UTF-8", "sunday"},
+		{"pt_BR.UTF-8", "sunday"},
+		{"ja_JP.UTF-8", "sunday"},
+
+		// Egypt reads its week from Saturday, but the date table does not name
+		// it either, and a region falls back whole rather than in pieces.
+		{"ar_EG.UTF-8", "sunday"},
+
+		// A bare language is taken where the date layout takes it.
+		{"en", "sunday"},
+		{"de", "monday"},
+
+		// A machine that will not say where it is gets the same country's
+		// conventions the date and the clock fall back on.
+		{"", "sunday"},
+		{"C", "sunday"},
+	} {
+		t.Run(tc.locale, func(t *testing.T) {
+			t.Setenv("LC_ALL", tc.locale)
+
+			if got := localeWeekStart(); got != tc.want {
+				t.Errorf("localeWeekStart() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// Whatever `wo init` offers has to be a day the setting can be read back as.
+func TestLocaleWeekStartIsAlwaysAReadableSetting(t *testing.T) {
+	isolateLocale(t)
+
+	for _, locale := range []string{"de_DE", "en_US", "ar_EG", "ja_JP", ""} {
+		t.Setenv("LC_ALL", locale)
+
+		if _, err := parseWeekStart(localeWeekStart()); err != nil {
+			t.Errorf("locale %q offers %q, which the setting refuses: %v",
+				locale, localeWeekStart(), err)
+		}
+	}
+}

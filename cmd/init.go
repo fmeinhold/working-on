@@ -26,6 +26,7 @@ type initAnswers struct {
 	DayFirst       bool
 	DateLayout     string
 	DateTimeLayout string
+	WeekStarts     string
 	PidRequired    bool
 	TaskRequired   bool
 	DefaultPid     int
@@ -287,6 +288,7 @@ func askInitQuestions(prompt *prompter, session initSession) (initAnswers, error
 	answers.DayFirst = dayFirstLayout(answers.DateLayout)
 	answers.DateTimeLayout = prompt.line("Date and time format",
 		answers.DateLayout+" "+localeTimeLayout())
+	answers.WeekStarts = weekdayNamed(prompt.line("Week starts on", localeWeekStart()))
 
 	answers.PidRequired = prompt.yesNo("Require a project on every entry", true)
 	answers.TaskRequired = prompt.yesNo("Require a task on every entry", false)
@@ -718,6 +720,9 @@ settings:
   date_layout: "{{.DateLayout}}"
   date_time_layout: "{{.DateTimeLayout}}"
 
+  # The day a week is read from, for wo show --week.
+  week_starts: {{.WeekStarts}}
+
   # From https://track.toggl.com/profile
   toggl_api_token: {{.ApiToken}}
 
@@ -806,3 +811,15 @@ settings:
   # its own, or is given one with --task.
   toggl_default_task: {{.TaskId}}
 {{end}}`
+
+// weekdayNamed settles what was typed at the week start question into the name
+// the setting is written with, so "Sun" and "sunday" both land as "sunday". An
+// answer that is no day at all is written down as it was typed: `wo show
+// --week` says what is wrong with it far better than a prompt refusing an
+// answer during setup.
+func weekdayNamed(answer string) string {
+	if day, known := weekdays[strings.ToLower(strings.TrimSpace(answer))]; known {
+		return strings.ToLower(day.String())
+	}
+	return strings.TrimSpace(answer)
+}

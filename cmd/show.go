@@ -32,10 +32,10 @@ going unseen - name an end yourself with --from or --to and it holds instead,
 with whatever it leaves out accounted for underneath. --list gives the same day
 as a table.
 
---week steps back from the day to the week it falls in - Monday to Sunday - and
-gives a row per day: what was tracked, how many entries it took and which
-projects they were for, with the week's hours totalled underneath. Days nobody
-worked are rows too.
+--week steps back from the day to the week it falls in and gives a row per day:
+what was tracked, how many entries it took and which projects they were for,
+with the week's hours totalled underneath. Days nobody worked are rows too. The
+week runs from whichever day week_starts names, Monday where it says nothing.
 
 The date is read the way every other date in wo is: "today", "yesterday", a
 weekday name for the most recent such day, or a date in your configured layout,
@@ -62,7 +62,12 @@ shortened to the day or the day and month if you like - with a layout of
 			names := &dayNames{}
 
 			if week {
-				start := weekStart(day, loc)
+				starts, err := parseWeekStart(cfg.Settings.WeekStarts)
+				if err != nil {
+					return err
+				}
+
+				start := weekStart(day, loc, starts)
 				end := start.AddDate(0, 0, 7)
 
 				listed, err := cl.TimeEntries.List(&start, &end)

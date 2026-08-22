@@ -117,9 +117,11 @@ That particular error is the ordinary "nothing to stop" case, not a fault.
 `[date]` is `today`, `yesterday`, a weekday name for the most recent such day,
 or a date in the user's configured layout.
 
-`--week` steps back from that date to the week it falls in - Monday to Sunday -
-and answers with every day of it, worked or not, each carrying `seconds`,
-`entries` and the `projects` it was spent on. `total_seconds` is the week.
+`--week` steps back from that date to the week it falls in and answers with
+every day of it, worked or not, each carrying `seconds`, `entries` and the
+`projects` it was spent on. `total_seconds` is the week. The week runs from
+whichever day the user's `week_starts` names - `wo where --show --json` has it -
+and from Monday where it says nothing.
 
 ### What goes on the command line
 

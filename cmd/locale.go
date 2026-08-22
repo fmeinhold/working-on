@@ -60,6 +60,19 @@ var hour12Regions = map[string]bool{
 	"CO": true,
 }
 
+// weekStartsSundayRegions begin the week on Sunday. Everywhere else here reads
+// it from Monday, as ISO 8601 does.
+//
+// Only regions the date table names can appear: one it does not know falls
+// back whole rather than in pieces, so listing another here would be a week
+// nobody is ever offered. A Saturday week - the Gulf states - is a setting you
+// can write by hand and not one wo guesses at, for the same reason.
+var weekStartsSundayRegions = map[string]bool{
+	"US": true, "CA": true, "PH": true, "MX": true, "CO": true, "PE": true,
+	"BR": true, "JP": true, "KR": true, "IN": true, "ZA": true, "TW": true,
+	"HK": true, "TH": true,
+}
+
 // languageRegions is where a locale naming no region is taken to be, so a bare
 // "de" still gets German dates. "en" goes to the US the way CLDR has it.
 var languageRegions = map[string]string{
@@ -77,6 +90,7 @@ var languageRegions = map[string]string{
 const (
 	fallbackDateLayout = "1/2/2006"
 	fallbackTimeLayout = "3:04 PM"
+	fallbackWeekStart  = "sunday"
 )
 
 func localeDateLayout() string {
@@ -100,6 +114,21 @@ func localeTimeLayout() string {
 	}
 
 	return "15:04"
+}
+
+// A region the date table does not name falls back with the other two, so an
+// unknown machine is offered one country's conventions rather than a mixture.
+func localeWeekStart() string {
+	region := localeRegion()
+
+	if _, known := regionDateLayouts[region]; !known {
+		return fallbackWeekStart
+	}
+	if weekStartsSundayRegions[region] {
+		return "sunday"
+	}
+
+	return "monday"
 }
 
 // localeRegion is the region this machine is set to, as an upper case code

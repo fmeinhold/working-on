@@ -60,6 +60,12 @@ type Settings struct {
 	// ToggleDefaultDescription names an entry that would otherwise have no
 	// description. Left empty, `wo` asks for one instead.
 	ToggleDefaultDescription string `mapstructure:"toggl_default_description" yaml:"toggl_default_description"`
+
+	// WeekStarts is the day a week is read from, as a weekday name. Countries
+	// disagree about this and so do the people in them, so it is asked rather
+	// than assumed - left empty it is Monday, the week work is planned and
+	// billed in.
+	WeekStarts string `mapstructure:"week_starts" yaml:"week_starts"`
 }
 
 type TemplateConfig struct {

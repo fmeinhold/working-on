@@ -207,9 +207,9 @@ func TestInitAnswersOverrideTheDefaults(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
 
-	// timezone, date, datetime, pid required, task required, pick a default,
-	// which one
-	answers := "token\nUTC\n2006-01-02\n2006-01-02 15:04\nn\ny\ny\n1\n"
+	// timezone, date, datetime, week start, pid required, task required, pick
+	// a default, which one
+	answers := "token\nUTC\n2006-01-02\n2006-01-02 15:04\nSun\nn\ny\ny\n1\n"
 
 	session, _ := oneWorkspace().session(t, answers, path)
 
@@ -235,6 +235,9 @@ func TestInitAnswersOverrideTheDefaults(t *testing.T) {
 		}
 		if cfg.Settings.DayFirst {
 			t.Error("day_first = true, want false for a year first layout")
+		}
+		if cfg.Settings.WeekStarts != "sunday" {
+			t.Errorf("week_starts = %q, want the answered sunday", cfg.Settings.WeekStarts)
 		}
 	})
 }
