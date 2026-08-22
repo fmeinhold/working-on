@@ -1,6 +1,6 @@
 ---
 name: wo
-description: Track time in Toggl Track from the command line with the `wo` tool - start and stop timers, see what is running, review or tidy a day. Use when the user says they are starting or finishing a piece of work, asks what they are working on or how long they have been at it, wants a timer stopped or switched, asks what they did today or yesterday, or wants a day's ragged entries tidied up. Also use when settling into work in a repository, to check whether that checkout tracks time and, where it does, start an entry for the work at hand.
+description: Track time in Toggl Track from the command line with the `wo` tool - start and stop timers, see what is running, review or tidy a day, summarise a week. Use when the user says they are starting or finishing a piece of work, asks what they are working on or how long they have been at it, wants a timer stopped or switched, asks what they did today or yesterday, asks how their week went or how many hours a week came to, or wants a day's ragged entries tidied up. Also use when settling into work in a repository, to check whether that checkout tracks time and, where it does, start an entry for the work at hand.
 ---
 
 # wo
@@ -108,6 +108,7 @@ That particular error is the ordinary "nothing to stop" case, not a fault.
 | Book a finished stretch | `wo add "<description>" <start> <duration> --json` | `{action: "added", entry}` |
 | Change one that is there | `wo modify <flags> --json` | `{action: "modified", entry, was, changed, saved}` |
 | A day's entries | `wo show [date] --json` | `{date, entries, total_seconds}` |
+| A week, a day at a time | `wo show [date] --week --json` | `{from, to, days, total_seconds}` |
 | Projects | `wo projects --json` | `{projects, current_project}` |
 | Tasks for this project | `wo tasks --json` | `{tasks, project, hidden_archived}` |
 | Saved templates | `wo templates --json` | `{templates}` |
@@ -115,6 +116,10 @@ That particular error is the ordinary "nothing to stop" case, not a fault.
 
 `[date]` is `today`, `yesterday`, a weekday name for the most recent such day,
 or a date in the user's configured layout.
+
+`--week` steps back from that date to the week it falls in - Monday to Sunday -
+and answers with every day of it, worked or not, each carrying `seconds`,
+`entries` and the `projects` it was spent on. `total_seconds` is the week.
 
 ### What goes on the command line
 

@@ -18,6 +18,7 @@ func NewShowCommand(cfg *workingon.Config) *cobra.Command {
 		from string
 		to   string
 		list bool
+		week bool
 	)
 
 	showCommand := &cobra.Command{
@@ -30,6 +31,11 @@ time it covers. An early start or a late finish stretches those ends rather than
 going unseen - name an end yourself with --from or --to and it holds instead,
 with whatever it leaves out accounted for underneath. --list gives the same day
 as a table.
+
+--week steps back from the day to the week it falls in - Monday to Sunday - and
+gives a row per day: what was tracked, how many entries it took and which
+projects they were for, with the week's hours totalled underneath. Days nobody
+worked are rows too.
 
 The date is read the way every other date in wo is: "today", "yesterday", a
 weekday name for the most recent such day, or a date in your configured layout,
@@ -51,17 +57,38 @@ shortened to the day or the day and month if you like - with a layout of
 				return err
 			}
 
-			start := startOfDay(day, &cfg.Settings.Location)
+			loc := &cfg.Settings.Location
+			cl := toggl.NewToggl(cfg.Settings.ToggleApiToken)
+			names := &dayNames{}
+
+			if week {
+				start := weekStart(day, loc)
+				end := start.AddDate(0, 0, 7)
+
+				listed, err := cl.TimeEntries.List(&start, &end)
+				if err != nil {
+					return err
+				}
+
+				summary := weekOf(start, listed.TimeEntries, names.names)
+
+				if jsonOutput {
+					return emitWeek(summary)
+				}
+
+				fmt.Print(RenderWeek(summary, cfg))
+				return nil
+			}
+
+			start := startOfDay(day, loc)
 			end := start.AddDate(0, 0, 1)
 
-			cl := toggl.NewToggl(cfg.Settings.ToggleApiToken)
 			listed, err := cl.TimeEntries.List(&start, &end)
 			if err != nil {
 				return err
 			}
 
 			entries := entriesStartingOn(start, listed.TimeEntries)
-			names := &dayNames{}
 
 			if jsonOutput {
 				return emitDay(start, entries, cfg, names.names)
@@ -81,6 +108,14 @@ shortened to the day or the day and month if you like - with a layout of
 	showCommand.Flags().StringVar(&from, "from", "", "Hour the timeline starts at (default 6:00)")
 	showCommand.Flags().StringVar(&to, "to", "", "Hour the timeline ends at (default 18:00)")
 	showCommand.Flags().BoolVarP(&list, "list", "l", false, "List the entries as a table instead")
+	showCommand.Flags().BoolVarP(&week, "week", "w", false,
+		"Summarise the week the day falls in, a row per day")
+
+	// The week is a different listing rather than another way of drawing the
+	// day, so the flags that shape the day have nothing to say about it.
+	showCommand.MarkFlagsMutuallyExclusive("week", "list")
+	showCommand.MarkFlagsMutuallyExclusive("week", "from")
+	showCommand.MarkFlagsMutuallyExclusive("week", "to")
 
 	return showCommand
 }

@@ -214,3 +214,50 @@ func emitEntry(action string, entry *toggl.TimeEntry, cfg *workingon.Config) err
 		Entry  *entryJSON `json:"entry"`
 	}{action, entryWith(entry, cfg)})
 }
+
+// emitWeek is the week a day at a time, for a program reading the output.
+// Every day of the week is there, including the ones with nothing on them.
+func emitWeek(week []dayTotal) error {
+	type dayJSON struct {
+		Date     string   `json:"date"`
+		Weekday  string   `json:"weekday"`
+		Entries  int      `json:"entries"`
+		Seconds  int64    `json:"seconds"`
+		Projects []string `json:"projects"`
+		Running  bool     `json:"running"`
+	}
+
+	days := make([]dayJSON, 0, len(week))
+	var total int64
+
+	for _, day := range week {
+		seconds := int64(day.Tracked / time.Second)
+		total += seconds
+
+		projects := day.Projects
+		if projects == nil {
+			projects = []string{}
+		}
+
+		days = append(days, dayJSON{
+			Date:     day.Day.Format("2006-01-02"),
+			Weekday:  day.Day.Format("Monday"),
+			Entries:  day.Entries,
+			Seconds:  seconds,
+			Projects: projects,
+			Running:  day.Running,
+		})
+	}
+
+	return emit(struct {
+		From         string    `json:"from"`
+		To           string    `json:"to"`
+		Days         []dayJSON `json:"days"`
+		TotalSeconds int64     `json:"total_seconds"`
+	}{
+		From:         week[0].Day.Format("2006-01-02"),
+		To:           week[len(week)-1].Day.Format("2006-01-02"),
+		Days:         days,
+		TotalSeconds: total,
+	})
+}
