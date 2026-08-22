@@ -327,3 +327,94 @@ func TestParseArgsHonoursConfiguredDateLayout(t *testing.T) {
 		t.Errorf("start = %s, want %s", start.Format(time.RFC3339), want.Format(time.RFC3339))
 	}
 }
+
+// Wo writes the time on whichever clock you configured, so both have to be
+// readable back: an entry shown as 04:20pm that only answers to 16:20 is a
+// listing you cannot type into.
+func TestTryClockReadsBothClocks(t *testing.T) {
+	for value, want := range map[string]clockTime{
+		"17:30":   {hour: 17, minute: 30},
+		"5:30pm":  {hour: 17, minute: 30},
+		"05:30PM": {hour: 17, minute: 30},
+		"5pm":     {hour: 17, minute: 0},
+		"9:00":    {hour: 9, minute: 0},
+		"9am":     {hour: 9, minute: 0},
+		"12am":    {hour: 0, minute: 0},
+		"12pm":    {hour: 12, minute: 0},
+		"12:30am": {hour: 0, minute: 30},
+	} {
+		t.Run(value, func(t *testing.T) {
+			got, matched, err := tryClock(value)
+			if err != nil {
+				t.Fatalf("tryClock(%q): %v", value, err)
+			}
+			if !matched {
+				t.Fatalf("tryClock(%q) did not read it as a time", value)
+			}
+			if got != want {
+				t.Errorf("clock = %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+// A bare number is a day of the month, or a duration, or part of what you were
+// doing - only minutes or an am and pm makes one a time.
+func TestTryClockLeavesBareNumbersAlone(t *testing.T) {
+	for _, value := range []string{"5", "17", "2026"} {
+		if _, matched, _ := tryClock(value); matched {
+			t.Errorf("tryClock(%q) read a bare number as a time", value)
+		}
+	}
+}
+
+func TestTryClockRejectsAnHourThatIsNotOnTheClockItNames(t *testing.T) {
+	for _, value := range []string{"13pm", "0am", "25:00"} {
+		if _, matched, err := tryClock(value); matched && err == nil {
+			t.Errorf("tryClock(%q) was accepted", value)
+		}
+	}
+}
+
+func TestParseArgsReadsATwelveHourStart(t *testing.T) {
+	start, _, tail, err := ParseArgs(testConfig(), []string{"fixing the parser", "5:30pm"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := start.In(berlin()).Format("15:04"); got != "17:30" {
+		t.Errorf("start = %s, want 17:30", got)
+	}
+	if strings.Join(tail, " ") != "fixing the parser" {
+		t.Errorf("tail = %v, want the description on its own", tail)
+	}
+}
+
+func TestParseArgsReadsATwelveHourRange(t *testing.T) {
+	start, duration, _, err := ParseArgs(testConfig(), []string{"9am-5pm"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := start.In(berlin()).Format("15:04"); got != "09:00" {
+		t.Errorf("start = %s, want 09:00", got)
+	}
+	if duration != 8*time.Hour {
+		t.Errorf("duration = %s, want 8h", duration)
+	}
+}
+
+// "5-7" is not a range of times, whatever else it may be.
+func TestParseArgsLeavesABareNumberRangeAlone(t *testing.T) {
+	_, duration, tail, err := ParseArgs(testConfig(), []string{"5-7"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if duration != 0 {
+		t.Errorf("duration = %s, want none", duration)
+	}
+	if strings.Join(tail, " ") != "5-7" {
+		t.Errorf("tail = %v, want it left as text", tail)
+	}
+}

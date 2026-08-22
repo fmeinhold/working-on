@@ -110,8 +110,10 @@ leaves the entry without one rather than carrying a task across.`,
 
 	modifyCommand.Flags().IntVar(&id, "id", 0,
 		"The entry to change, by id (default the running one, or the last there was)")
-	modifyCommand.Flags().StringVar(&start, "start", "", "Move the start, as \"9:00\"")
-	modifyCommand.Flags().StringVarP(&stop, "stop", "s", "", "Move the stop, as \"17:00\"")
+	modifyCommand.Flags().StringVar(&start, "start", "",
+		fmt.Sprintf("Move the start, as %q", clockExample(cfg, 9, 0)))
+	modifyCommand.Flags().StringVarP(&stop, "stop", "s", "",
+		fmt.Sprintf("Move the stop, as %q", clockExample(cfg, 17, 0)))
 	modifyCommand.Flags().StringVarP(&project, "project", "p", "",
 		"File it under another project, by id or by name")
 	modifyCommand.Flags().StringVar(&task, "task", "", "Attach another task, by id or by name")
@@ -170,11 +172,22 @@ func parseMoment(cfg *workingon.Config, spec string, on time.Time) (time.Time, e
 			continue
 		}
 
+		example := clockExample(cfg, 17, 0)
+
 		return time.Time{}, fmt.Errorf(
-			"%q is not a time - give one as \"17:00\", or with a day as \"yesterday 17:00\"", field)
+			"%q is not a time - give one as %q, or with a day as %q",
+			field, example, "yesterday "+example)
 	}
 
 	return time.Date(year, month, day, clock.hour, clock.minute, 0, 0, loc), nil
+}
+
+// clockExample writes a time of day in whichever layout the user reads, so a
+// hint about how to type one shows a time they would recognise rather than the
+// 24 hour clock somebody on a 12 hour one never sees.
+func clockExample(cfg *workingon.Config, hour, minute int) string {
+	return time.Date(2006, time.January, 2, hour, minute, 0, 0, time.UTC).
+		Format(timeLayout(cfg))
 }
 
 // hasDate reports whether a spec said which day it meant. One that did is

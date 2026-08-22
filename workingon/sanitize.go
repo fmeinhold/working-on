@@ -83,11 +83,20 @@ func ParseZones(values []string) ([]Zone, error) {
 }
 
 // parseClockMinute reads "12:30", or "12" for the top of the hour, as minutes
-// since midnight.
+// since midnight. A 12 hour clock is read too - "12:30pm" - since these are
+// settings written by whoever reads the times wo prints, on whichever clock
+// that is.
 func parseClockMinute(value string) (int, error) {
-	value = strings.TrimSpace(value)
+	written := strings.TrimSpace(value)
 
-	hours, minutes, hasMinutes := strings.Cut(value, ":")
+	clock, half := written, ""
+	if len(written) > 2 {
+		if suffix := strings.ToLower(written[len(written)-2:]); suffix == "am" || suffix == "pm" {
+			clock, half = strings.TrimSpace(written[:len(written)-2]), suffix
+		}
+	}
+
+	hours, minutes, hasMinutes := strings.Cut(clock, ":")
 	if !hasMinutes {
 		minutes = "0"
 	}
@@ -95,9 +104,25 @@ func parseClockMinute(value string) (int, error) {
 	hour, hourErr := strconv.Atoi(strings.TrimSpace(hours))
 	minute, minuteErr := strconv.Atoi(strings.TrimSpace(minutes))
 
-	if hourErr != nil || minuteErr != nil || hour < 0 || minute < 0 || minute > 59 ||
-		hour*60+minute > 24*60 {
-		return 0, fmt.Errorf("%q is not a time of day", value)
+	if hourErr != nil || minuteErr != nil || hour < 0 || minute < 0 || minute > 59 {
+		return 0, fmt.Errorf("%q is not a time of day", written)
+	}
+
+	if half != "" {
+		if hour < 1 || hour > 12 {
+			return 0, fmt.Errorf("%q is not a time of day - a 12 hour clock runs from 1 to 12", written)
+		}
+
+		// Twelve is the odd one out: 12am opens the day and 12pm is the middle
+		// of it, where every other hour is itself or itself plus twelve.
+		hour %= 12
+		if half == "pm" {
+			hour += 12
+		}
+	}
+
+	if hour*60+minute > 24*60 {
+		return 0, fmt.Errorf("%q is not a time of day", written)
 	}
 
 	return hour*60 + minute, nil

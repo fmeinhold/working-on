@@ -798,3 +798,49 @@ func TestSanitizeDoesNotClaimToHaveSnappedWhatWasAlreadyOnTheGrid(t *testing.T) 
 		t.Errorf("note = %q, want the cap on its own", got.Note())
 	}
 }
+
+// These are settings written by whoever reads the times wo prints, on whichever
+// clock that is.
+func TestParseClockMinuteReadsBothClocks(t *testing.T) {
+	for value, want := range map[string]int{
+		"17:30":   17*60 + 30,
+		"5:30pm":  17*60 + 30,
+		"5pm":     17 * 60,
+		"9am":     9 * 60,
+		"12am":    0,
+		"12pm":    12 * 60,
+		"12":      12 * 60,
+		"24:00":   24 * 60,
+		"12:30AM": 30,
+	} {
+		t.Run(value, func(t *testing.T) {
+			got, err := parseClockMinute(value)
+			if err != nil {
+				t.Fatalf("parseClockMinute(%q): %v", value, err)
+			}
+			if got != want {
+				t.Errorf("minute = %d, want %d", got, want)
+			}
+		})
+	}
+}
+
+func TestParseClockMinuteRejectsAnHourThatIsNotOnTheClockItNames(t *testing.T) {
+	for _, value := range []string{"13pm", "0am", "25:00", "pm"} {
+		if _, err := parseClockMinute(value); err == nil {
+			t.Errorf("parseClockMinute(%q) was accepted", value)
+		}
+	}
+}
+
+// A zone is two times of day, and both may be written either way.
+func TestParseZoneReadsATwelveHourSpan(t *testing.T) {
+	got, err := ParseZone("11:45am-1pm")
+	if err != nil {
+		t.Fatalf("ParseZone: %v", err)
+	}
+
+	if got.String() != "11:45-13:00" {
+		t.Errorf("zone = %s, want 11:45-13:00", got)
+	}
+}

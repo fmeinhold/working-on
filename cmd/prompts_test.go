@@ -282,3 +282,40 @@ func TestEndOfDayAskerLeavesItAloneWhenNobodySays(t *testing.T) {
 		t.Errorf("did not say what it did:\n%s", out)
 	}
 }
+
+// twelveHourConfig reads the clock the way most of the Americas do, which is
+// the layout `wo init` offers there.
+func twelveHourConfig() *workingon.Config {
+	cfg := sanitizeConfig()
+	cfg.Settings.DateLayout = "1/2/2006"
+	cfg.Settings.DateTimeLayout = "1/2/2006 03:04pm"
+
+	return cfg
+}
+
+// The prompt offers the end of day in the layout the user reads, so typing back
+// what it just showed has to work. Offering "06:00pm" and then answering only
+// to "18:00" is the whole complaint.
+func TestEndOfDayAskerTakesBackTheTimeItShowed(t *testing.T) {
+	out := &bytes.Buffer{}
+	asker := endOfDayAskerFor(twelveHourConfig(), strings.NewReader("06:00pm\n"), out)
+
+	got := asker(overnightAsk(true))
+
+	if !strings.Contains(out.String(), "[06:00pm]") {
+		t.Errorf("the offer was not in the user's layout:\n%s", out)
+	}
+	if want := time.Date(2026, time.August, 6, 18, 0, 0, 0, time.UTC); !got.Equal(want) {
+		t.Errorf("stopped at %s, want the offered time typed back as %s", got, want)
+	}
+}
+
+func TestEndOfDayAskerReadsATwelveHourAnswer(t *testing.T) {
+	asker := endOfDayAskerFor(twelveHourConfig(), strings.NewReader("6:30pm\n"), &bytes.Buffer{})
+
+	got := asker(overnightAsk(true))
+
+	if want := time.Date(2026, time.August, 6, 18, 30, 0, 0, time.UTC); !got.Equal(want) {
+		t.Errorf("stopped at %s, want %s", got, want)
+	}
+}

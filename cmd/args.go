@@ -11,8 +11,13 @@ import (
 )
 
 var (
-	isTime      = regexp.MustCompile(`^(\d{1,2}):(\d{2})$`)
-	isTimeRange = regexp.MustCompile(`^(\d{1,2}:\d{2})-(\d{1,2}:\d{2})$`)
+	// A time of day on either clock. Wo writes the time in whichever layout
+	// you configured, and a listing you can read is no use if the times in it
+	// are not the times you may type back.
+	clockPattern = `\d{1,2}(?::\d{2})?(?:[aApP][mM])?`
+
+	isTime      = regexp.MustCompile(`^(\d{1,2})(?::(\d{2}))?([aApP][mM])?$`)
+	isTimeRange = regexp.MustCompile(`^(` + clockPattern + `)-(` + clockPattern + `)$`)
 	isSeparator = regexp.MustCompile(`[^0-9A-Za-z]+`)
 )
 
@@ -131,17 +136,39 @@ func ParseArgs(config *ParseArgsConfig, args []string) (time.Time, time.Duration
 	return start.UTC(), duration, tail, nil
 }
 
-// tryClock reads "15:30". The bool reports whether the argument looked like a
-// time at all, so a malformed one is rejected rather than silently treated as
-// part of the description.
+// tryClock reads a time of day on either clock: "15:30", "3:30pm", "3pm". The
+// bool reports whether the argument looked like a time at all, so a malformed
+// one is rejected rather than silently treated as part of the description.
 func tryClock(value string) (clockTime, bool, error) {
 	match := isTime.FindStringSubmatch(value)
 	if match == nil {
 		return clockTime{}, false, nil
 	}
 
-	hour, _ := strconv.Atoi(match[1])
-	minute, _ := strconv.Atoi(match[2])
+	digits, minutes, half := match[1], match[2], strings.ToLower(match[3])
+
+	// A bare number is a day of the month, or a duration, or part of what you
+	// were doing. Only minutes or an am and pm makes it a time.
+	if minutes == "" && half == "" {
+		return clockTime{}, false, nil
+	}
+
+	hour, _ := strconv.Atoi(digits)
+	minute, _ := strconv.Atoi(minutes)
+
+	if half != "" {
+		if hour < 1 || hour > 12 {
+			return clockTime{}, true, fmt.Errorf(
+				"%q is not a valid time of day - a 12 hour clock runs from 1 to 12", value)
+		}
+
+		// Twelve is the odd one out: 12am opens the day and 12pm is the middle
+		// of it, where every other hour is itself or itself plus twelve.
+		hour %= 12
+		if half == "pm" {
+			hour += 12
+		}
+	}
 
 	if hour > 23 || minute > 59 {
 		return clockTime{}, true, fmt.Errorf("%q is not a valid time of day", value)
@@ -157,14 +184,22 @@ func tryTimeRange(value string) (clockTime, time.Duration, bool, error) {
 		return clockTime{}, 0, false, nil
 	}
 
-	from, _, err := tryClock(match[1])
+	from, isClock, err := tryClock(match[1])
 	if err != nil {
 		return clockTime{}, 0, true, err
 	}
+	if !isClock {
+		// Two bare numbers with a dash between them - "5-7" - are not a range
+		// of times, whatever else they may be.
+		return clockTime{}, 0, false, nil
+	}
 
-	to, _, err := tryClock(match[2])
+	to, isClock, err := tryClock(match[2])
 	if err != nil {
 		return clockTime{}, 0, true, err
+	}
+	if !isClock {
+		return clockTime{}, 0, false, nil
 	}
 
 	duration := to.sub(from)
